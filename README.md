@@ -1,90 +1,116 @@
-# Budget Management Backend
+# Budget Management System - Backend API
 
-FastAPI backend for budget management system with authentication and data management.
+FastAPI backend for the budget management system with authentication, role-based access control, and comprehensive data management.
 
-## 🚀 Quick Deploy
+## 🚀 ONE-CLICK DEPLOY (Choose One)
 
-### Deploy to Render (One Click)
+### Option 1: Railway (Recommended - Easiest)
+[![Deploy on Railway](https://railway.app/button.svg)](https://railway.app/template/HB_Q_D?referralCode=alphasec)
 
-[![Deploy to Render](https://render.com/images/deploy-to-render-button.svg)](https://render.com/deploy?repo=https://github.com/aliebnemara/budget-management-backend)
+**Click the button above, then:**
+1. Sign in with GitHub
+2. Click "Deploy Now"
+3. Wait 2 minutes
+4. Copy your Railway URL
+5. Done! ✅
 
-**OR**
+### Option 2: Render
+[![Deploy to Render](https://render.com/images/deploy-to-render-button.svg)](https://render.com/deploy)
 
-Click this link: https://render.com/deploy?repo=https://github.com/aliebnemara/budget-management-backend
+**Click the button above, then:**
+1. Sign in with GitHub
+2. Select this repository
+3. Click "Apply"
+4. Wait 3 minutes
+5. Done! ✅
 
----
-
-## ✅ After Deployment:
-
-1. Wait for deployment to complete (2-3 minutes)
-2. Copy your backend URL (example: `https://budget-management-api.onrender.com`)
-3. Add it to Vercel environment variables:
-   - Go to: https://vercel.com/dashboard
-   - Select your project
-   - Settings → Environment Variables
-   - Add: `VITE_API_BASE_URL` = `your-render-url`
-4. Redeploy frontend
-
-Your app will be fully functional! 🎉
-
----
-
-## 📋 Manual Deployment Instructions
-
-If the one-click deploy doesn't work, follow these steps:
-
-### Step 1: Create Web Service on Render
-1. Go to: https://dashboard.render.com/
-2. Sign in with GitHub
-3. Click "New +" → "Web Service"
-4. Select repository: `budget-management-backend`
-
-### Step 2: Configure
-```
-Name: budget-management-api
-Runtime: Python 3
-Build Command: pip install -r requirements.txt
-Start Command: uvicorn src.main:app --host 0.0.0.0 --port $PORT
-Instance Type: Free
+### Option 3: Fly.io
+```bash
+flyctl launch
+flyctl deploy
 ```
 
-### Step 3: Environment Variables
-```
-DATABASE_URL = sqlite:///./budget.db
-SECRET_KEY = your-secret-key-change-this
-CORS_ORIGINS = *
-```
+## 📋 Environment Variables
 
-### Step 4: Deploy
-Click "Create Web Service" and wait for deployment.
+After deployment, add these environment variables:
 
----
+```env
+DATABASE_URL=sqlite:///./budget.db
+SECRET_KEY=your-super-secret-key-here
+CORS_ORIGINS=*
+```
 
 ## 🔗 Connect to Frontend
 
-After backend is deployed, update Vercel:
+After deploying, update your Vercel frontend with:
 
-1. Go to Vercel dashboard
-2. Select your project: `budget-management-system`
-3. Settings → Environment Variables
-4. Add new variable:
-   - Key: `VITE_API_BASE_URL`
-   - Value: Your Render backend URL
-5. Redeploy
-
----
-
-## ✅ Verification
-
-Test your backend:
-```bash
-curl https://your-backend-url.onrender.com/docs
+**Environment Variable:**
+```
+VITE_API_BASE_URL = https://your-backend-url.railway.app
 ```
 
-You should see the FastAPI documentation page.
+## 📝 Local Development
 
----
+```bash
+# Install dependencies
+pip install -r requirements.txt
 
-## 📞 Support
+# Run the server
+uvicorn src.main:app --reload --port 8000
+```
 
-If you need help, check the deployment logs in Render dashboard or contact support.
+## 🧪 API Documentation
+
+Once deployed, visit:
+- Swagger UI: `https://your-backend-url/docs`
+- ReDoc: `https://your-backend-url/redoc`
+
+## 🏗️ Tech Stack
+
+- **Framework:** FastAPI
+- **Database:** SQLite (with SQLAlchemy ORM)
+- **Authentication:** JWT tokens
+- **CORS:** Enabled for all origins
+- **Documentation:** Auto-generated OpenAPI
+
+## 📊 API Endpoints
+
+### Authentication
+- `POST /api/auth/login` - User login
+- `POST /api/auth/refresh` - Refresh access token
+- `GET /api/auth/me` - Get current user
+
+### Budget Management
+- `GET /api/budget/` - Get budget data
+- `POST /api/budget/` - Create/update budget
+- `DELETE /api/budget/{id}` - Delete budget entry
+
+### Brands & Branches
+- `GET /api/brands/` - List all brands
+- `GET /api/brands/{id}/branches` - Get brand branches
+
+### Daily Sales
+- `GET /api/daily-sales/` - Get sales data
+- `POST /api/daily-sales/import` - Import sales data
+
+### User Management (Admin only)
+- `GET /api/users/` - List users
+- `POST /api/users/` - Create user
+- `PUT /api/users/{id}` - Update user
+- `DELETE /api/users/{id}` - Delete user
+
+## 🔐 Default Users
+
+After initialization, you can login with:
+
+**Super Admin:**
+- Username: `admin`
+- Password: (set during initialization)
+
+## 📄 License
+
+Private - Budget Management System
+
+## 🆘 Support
+
+For issues or questions, contact the development team.
