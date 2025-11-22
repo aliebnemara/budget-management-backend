@@ -211,14 +211,14 @@ def get_weekend_effect(
                     key = (year, month, day_name)
                     day_occurrences[key] = count_day_occurrences(year, month, day_num)
         
-        # Group by day_name and month, sum gross sales
+        # Group by branch_id, month, day_name - calculate per branch first (matches home page)
         gross_sums = (
-            df_compare.groupby(['month', 'day_name'])['gross']
+            df_compare.groupby(['branch_id', 'month', 'day_name'])['gross']
             .sum()
             .reset_index(name='gross_sum')
         )
         
-        # Calculate for each month
+        # Calculate for each branch-month combination, then aggregate (matches home page logic)
         monthly_data = []
         month_names = ['January', 'February', 'March', 'April', 'May', 'June',
                       'July', 'August', 'September', 'October', 'November', 'December']
@@ -226,37 +226,46 @@ def get_weekend_effect(
         for month in range(1, 13):
             month_data = gross_sums[gross_sums['month'] == month]
             
-            weekday_data = {}
+            # Calculate per branch first, then sum
+            weekday_aggregated = {}
             
             for day_name in ['Saturday', 'Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday']:
-                # Get compare year data
-                day_data = month_data[month_data['day_name'] == day_name]
-                sales_compare = float(day_data['gross_sum'].sum()) if not day_data.empty else 0
-                
-                # Get calendar day counts (matches home page)
+                # Get calendar day counts (same for all branches)
                 count_compare = day_occurrences.get((compare_year, month, day_name), 0)
                 count_budget = day_occurrences.get((budget_year, month, day_name), 0)
                 
-                # Calculate average (matches home page)
-                avg_compare = sales_compare / count_compare if count_compare > 0 else 0
+                # Calculate per branch, then aggregate
+                total_sales_compare = 0
+                total_est_sales_budget = 0
                 
-                # Estimate budget sales (matches home page: avg_compare * count_budget)
-                est_sales_budget = avg_compare * count_budget if count_compare > 0 else 0
+                # Get data for this day across all branches
+                day_data = month_data[month_data['day_name'] == day_name]
                 
-                weekday_data[day_name] = {
+                for _, row in day_data.iterrows():
+                    branch_sales = row['gross_sum']
+                    branch_avg = branch_sales / count_compare if count_compare > 0 else 0
+                    branch_est = branch_avg * count_budget if count_compare > 0 else 0
+                    
+                    total_sales_compare += branch_sales
+                    total_est_sales_budget += branch_est
+                
+                # Calculate aggregated average
+                avg_compare = total_sales_compare / count_compare if count_compare > 0 else 0
+                
+                weekday_aggregated[day_name] = {
                     'count_compare': int(count_compare),
-                    'sales_compare': float(sales_compare),
+                    'sales_compare': float(total_sales_compare),
                     'avg_compare': float(avg_compare),
                     'count_budget': int(count_budget),
                     'sales_budget': 0,  # Not used in calculation
                     'avg_budget': 0,    # Not used in calculation
-                    'est_sales_budget': float(est_sales_budget)
+                    'est_sales_budget': float(total_est_sales_budget)
                 }
             
             monthly_data.append({
                 'month': month,
                 'monthName': month_names[month - 1],
-                'weekdayData': weekday_data
+                'weekdayData': weekday_aggregated
             })
         
         return {
