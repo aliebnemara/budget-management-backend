@@ -131,8 +131,8 @@ def get_brands_list(current_user: dict = Depends(get_current_user)):
             result = {
                 "data": brands_data,
                 "config": {
-                    "compare_year": 2024,  # CY - Current comparison year
-                    "budget_year": 2025    # BY - Budget year (CY + 1)
+                    "compare_year": 2025,  # CY - Base year (actual data for averages)
+                    "budget_year": 2026    # BY - Budget year (future estimates)
                 }
             }
             
@@ -171,8 +171,8 @@ def get_weekend_effect(
         from src.db.dbtables import Branch
         
         branch_ids = request.get("branch_ids", [])
-        compare_year = request.get("compare_year", 2024)  # Default to 2024 (CY)
-        budget_year = request.get("budget_year", 2025)   # Default to 2025 (BY)
+        compare_year = request.get("compare_year", 2025)  # Default to 2025 (CY - base year)
+        budget_year = request.get("budget_year", 2026)   # Default to 2026 (BY - budget year)
         
         if not branch_ids:
             raise HTTPException(
