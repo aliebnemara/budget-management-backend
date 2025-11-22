@@ -95,6 +95,177 @@ def defaultCalculation(request: defaultBudgetModel, current_user: dict = Depends
             status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
 
 
+@budgetRouter.get("/brands-list", status_code=status.HTTP_200_OK)
+def get_brands_list(current_user: dict = Depends(get_current_user)):
+    """Lightweight endpoint to get just brands and branches list without calculations"""
+    try:
+        from src.core.db import get_session, close_session
+        from src.db.dbtables import Brand, Branch
+        
+        dbs = get_session()
+        try:
+            # Query brands and branches
+            brands_query = dbs.query(Brand).filter(Brand.is_deleted == False).order_by(Brand.id).all()
+            
+            # Build simple structure
+            brands_data = []
+            for brand in brands_query:
+                branches = dbs.query(Branch).filter(
+                    Branch.brand_id == brand.id,
+                    Branch.is_deleted == False
+                ).order_by(Branch.id).all()
+                
+                brand_dict = {
+                    "brand_id": brand.id,
+                    "brand_name": brand.name,
+                    "branches": [
+                        {
+                            "branch_id": branch.id,
+                            "branch_name": branch.name
+                        }
+                        for branch in branches
+                    ]
+                }
+                brands_data.append(brand_dict)
+            
+            result = {
+                "data": brands_data,
+                "config": {
+                    "compare_year": 2023,  # Hardcoded for now
+                    "budget_year": 2025     # Hardcoded for now
+                }
+            }
+            
+            # Filter by permissions
+            return filter_budget_data_by_permissions(result, current_user)
+            
+        finally:
+            close_session(dbs)
+            
+    except Exception as e:
+        traceback.print_exc()
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to fetch brands list: {str(e)}"
+        )
+
+
+@budgetRouter.post("/weekend-effect", status_code=status.HTTP_200_OK)
+def get_weekend_effect(
+    request: dict,
+    current_user: dict = Depends(get_current_user)
+):
+    """
+    Calculate weekend effect for selected branches
+    Request body: {
+        "branch_ids": [1, 2, 3],
+        "compare_year": 2023,
+        "budget_year": 2025
+    }
+    """
+    try:
+        import pandas as pd
+        from datetime import datetime
+        from src.core.db import get_session, close_session
+        from src.db.dbtables import Branch
+        
+        branch_ids = request.get("branch_ids", [])
+        compare_year = request.get("compare_year", 2023)
+        budget_year = request.get("budget_year", 2025)
+        
+        if not branch_ids:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="branch_ids is required"
+            )
+        
+        # Load BaseData.pkl
+        BASE_DATA_PATH = "/home/user/backend/Backend/BaseData.pkl"
+        df = pd.read_pickle(BASE_DATA_PATH)
+        
+        # Ensure business_date is datetime
+        df['business_date'] = pd.to_datetime(df['business_date'])
+        
+        # Filter by branch_ids
+        df = df[df['branch_id'].isin(branch_ids)]
+        
+        # Filter by years
+        df_compare = df[df['business_date'].dt.year == compare_year].copy()
+        df_budget = df[df['business_date'].dt.year == budget_year].copy()
+        
+        # Add weekday name (0=Monday, 6=Sunday)
+        df_compare['weekday'] = df_compare['business_date'].dt.dayofweek
+        df_budget['weekday'] = df_budget['business_date'].dt.dayofweek
+        
+        # Map weekday to day names
+        day_map = {0: 'Monday', 1: 'Tuesday', 2: 'Wednesday', 3: 'Thursday', 
+                   4: 'Friday', 5: 'Saturday', 6: 'Sunday'}
+        df_compare['day_name'] = df_compare['weekday'].map(day_map)
+        df_budget['day_name'] = df_budget['weekday'].map(day_map)
+        
+        # Add month
+        df_compare['month'] = df_compare['business_date'].dt.month
+        df_budget['month'] = df_budget['business_date'].dt.month
+        
+        # Calculate for each month
+        monthly_data = []
+        month_names = ['January', 'February', 'March', 'April', 'May', 'June',
+                      'July', 'August', 'September', 'October', 'November', 'December']
+        
+        for month in range(1, 13):
+            month_compare = df_compare[df_compare['month'] == month]
+            month_budget = df_budget[df_budget['month'] == month]
+            
+            weekday_data = {}
+            
+            for day_name in ['Saturday', 'Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday']:
+                # Compare year data
+                day_compare = month_compare[month_compare['day_name'] == day_name]
+                count_compare = len(day_compare)
+                sales_compare = day_compare['gross'].sum() if count_compare > 0 else 0
+                avg_compare = sales_compare / count_compare if count_compare > 0 else 0
+                
+                # Budget year data
+                day_budget = month_budget[month_budget['day_name'] == day_name]
+                count_budget = len(day_budget)
+                sales_budget = day_budget['gross'].sum() if count_budget > 0 else 0
+                avg_budget = sales_budget / count_budget if count_budget > 0 else 0
+                
+                # Estimate budget sales using compare year average
+                est_sales_budget = avg_compare * count_budget if count_compare > 0 else 0
+                
+                weekday_data[day_name] = {
+                    'count_compare': int(count_compare),
+                    'sales_compare': float(sales_compare),
+                    'avg_compare': float(avg_compare),
+                    'count_budget': int(count_budget),
+                    'sales_budget': float(sales_budget),
+                    'avg_budget': float(avg_budget),
+                    'est_sales_budget': float(est_sales_budget)
+                }
+            
+            monthly_data.append({
+                'month': month,
+                'monthName': month_names[month - 1],
+                'weekdayData': weekday_data
+            })
+        
+        return {
+            'data': monthly_data,
+            'config': {
+                'compare_year': compare_year,
+                'budget_year': budget_year
+            }
+        }
+        
+    except Exception as e:
+        traceback.print_exc()
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to calculate weekend effect: {str(e)}"
+        )
+
+
 @budgetRouter.post("/home", status_code=status.HTTP_202_ACCEPTED)
 def defaultCalculationHome(current_user: dict = Depends(get_current_user)):
     try:
