@@ -156,7 +156,7 @@ def get_weekend_effect(
     current_user: dict = Depends(get_current_user)
 ):
     """
-    Calculate weekend effect for selected branches
+    Calculate weekend effect for selected branches (matches home page calculation)
     Request body: {
         "branch_ids": [1, 2, 3],
         "compare_year": 2023,
@@ -165,6 +165,7 @@ def get_weekend_effect(
     """
     try:
         import pandas as pd
+        import calendar
         from datetime import datetime
         from src.core.db import get_session, close_session
         from src.db.dbtables import Branch
@@ -189,23 +190,33 @@ def get_weekend_effect(
         # Filter by branch_ids
         df = df[df['branch_id'].isin(branch_ids)]
         
-        # Filter by years
+        # Filter by years (compare year only for actual data)
         df_compare = df[df['business_date'].dt.year == compare_year].copy()
-        df_budget = df[df['business_date'].dt.year == budget_year].copy()
         
-        # Add weekday name (0=Monday, 6=Sunday)
-        df_compare['weekday'] = df_compare['business_date'].dt.dayofweek
-        df_budget['weekday'] = df_budget['business_date'].dt.dayofweek
-        
-        # Map weekday to day names
-        day_map = {0: 'Monday', 1: 'Tuesday', 2: 'Wednesday', 3: 'Thursday', 
-                   4: 'Friday', 5: 'Saturday', 6: 'Sunday'}
-        df_compare['day_name'] = df_compare['weekday'].map(day_map)
-        df_budget['day_name'] = df_budget['weekday'].map(day_map)
-        
-        # Add month
+        # Add weekday info
         df_compare['month'] = df_compare['business_date'].dt.month
-        df_budget['month'] = df_budget['business_date'].dt.month
+        df_compare['day_name'] = df_compare['business_date'].dt.day_name()
+        
+        # Helper function to count calendar occurrences (matches home page logic)
+        def count_day_occurrences(year, month, day_number):
+            """Count how many times a weekday occurs in a month using calendar"""
+            month_days = calendar.monthcalendar(year, month)
+            return sum(1 for week in month_days if week[day_number] != 0)
+        
+        # Generate day occurrence lookup (matches home page logic)
+        day_occurrences = {}
+        for year in [compare_year, budget_year]:
+            for month in range(1, 13):
+                for day_num, day_name in enumerate(calendar.day_name):
+                    key = (year, month, day_name)
+                    day_occurrences[key] = count_day_occurrences(year, month, day_num)
+        
+        # Group by day_name and month, sum gross sales
+        gross_sums = (
+            df_compare.groupby(['month', 'day_name'])['gross']
+            .sum()
+            .reset_index(name='gross_sum')
+        )
         
         # Calculate for each month
         monthly_data = []
@@ -213,25 +224,23 @@ def get_weekend_effect(
                       'July', 'August', 'September', 'October', 'November', 'December']
         
         for month in range(1, 13):
-            month_compare = df_compare[df_compare['month'] == month]
-            month_budget = df_budget[df_budget['month'] == month]
+            month_data = gross_sums[gross_sums['month'] == month]
             
             weekday_data = {}
             
             for day_name in ['Saturday', 'Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday']:
-                # Compare year data
-                day_compare = month_compare[month_compare['day_name'] == day_name]
-                count_compare = len(day_compare)
-                sales_compare = day_compare['gross'].sum() if count_compare > 0 else 0
+                # Get compare year data
+                day_data = month_data[month_data['day_name'] == day_name]
+                sales_compare = float(day_data['gross_sum'].sum()) if not day_data.empty else 0
+                
+                # Get calendar day counts (matches home page)
+                count_compare = day_occurrences.get((compare_year, month, day_name), 0)
+                count_budget = day_occurrences.get((budget_year, month, day_name), 0)
+                
+                # Calculate average (matches home page)
                 avg_compare = sales_compare / count_compare if count_compare > 0 else 0
                 
-                # Budget year data
-                day_budget = month_budget[month_budget['day_name'] == day_name]
-                count_budget = len(day_budget)
-                sales_budget = day_budget['gross'].sum() if count_budget > 0 else 0
-                avg_budget = sales_budget / count_budget if count_budget > 0 else 0
-                
-                # Estimate budget sales using compare year average
+                # Estimate budget sales (matches home page: avg_compare * count_budget)
                 est_sales_budget = avg_compare * count_budget if count_compare > 0 else 0
                 
                 weekday_data[day_name] = {
@@ -239,8 +248,8 @@ def get_weekend_effect(
                     'sales_compare': float(sales_compare),
                     'avg_compare': float(avg_compare),
                     'count_budget': int(count_budget),
-                    'sales_budget': float(sales_budget),
-                    'avg_budget': float(avg_budget),
+                    'sales_budget': 0,  # Not used in calculation
+                    'avg_budget': 0,    # Not used in calculation
                     'est_sales_budget': float(est_sales_budget)
                 }
             
