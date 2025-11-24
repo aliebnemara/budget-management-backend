@@ -9,7 +9,7 @@ from src.models.projection import ProjectionEstimateIn, ProjectionInputModel
 from src.models.projected_allocation_branch import BranchTotalsIn, BranchTotalsOut
 from src.models.projected_allocation_branch_monthly import BranchMonthlyTotalsIn, BranchMonthlyTotalsOut
 from src.services.budget import calculateDefault
-from src.services.saveProjections import upsert_projection_estimate, upsert_projection_input
+from src.services.saveProjections import upsert_projection_estimate, upsert_projection_input, upsert_projection_input_batch, upsert_projection_estimate_batch
 from src.services.budget_state import compute_or_reuse
 import traceback
 from src.models.projection_est_adjust import AllocateGrandTotalIn, AllocateGrandTotalOut
@@ -304,6 +304,22 @@ def upsert_projection(body: ProjectionInputModel):
     return {"status": "ok"}
 
 
+@budgetRouter.post("/projection-inputs/upsert-batch")
+def upsert_projection_batch(body: list[dict]):
+    """
+    Batch upsert multiple projection inputs in a single transaction.
+    Body: [{"branch_id": 231, "month": 2, ...}, {"branch_id": 231, "month": 3, ...}]
+    """
+    try:
+        upsert_projection_input_batch(body)
+        return {"status": "ok", "count": len(body)}
+    except Exception as e:
+        print(e)
+        traceback.print_exc()
+        raise HTTPException(
+            status_code=500, detail=f"Failed to batch upsert projection inputs: {str(e)}")
+
+
 @budgetRouter.post("/pre-estimation/upsert")
 def upsert_estimate(body: ProjectionEstimateIn):
     try:
@@ -315,6 +331,22 @@ def upsert_estimate(body: ProjectionEstimateIn):
         print(e)
         raise HTTPException(
             status_code=500, detail="Failed to upsert projection estimate")
+
+
+@budgetRouter.post("/pre-estimation/upsert-batch")
+def upsert_estimate_batch(body: list[dict]):
+    """
+    Batch upsert multiple projection estimates in a single transaction.
+    Body: [{"branch_id": 231, "month": 2, ...}, {"branch_id": 231, "month": 3, ...}]
+    """
+    try:
+        upsert_projection_estimate_batch(body)
+        return {"status": "ok", "count": len(body)}
+    except Exception as e:
+        print(e)
+        traceback.print_exc()
+        raise HTTPException(
+            status_code=500, detail=f"Failed to batch upsert projection estimates: {str(e)}")
 
 
 @budgetRouter.post("/allocate-grand-total", response_model=AllocateGrandTotalOut)

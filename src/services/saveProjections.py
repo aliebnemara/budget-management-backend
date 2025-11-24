@@ -38,6 +38,46 @@ def upsert_projection_input(payload: dict):
         close_session(dbs)
 
 
+def upsert_projection_input_batch(payloads: list[dict]):
+    """
+    Batch upsert multiple projection inputs in a single transaction.
+    Much faster than multiple individual upsert calls.
+    """
+    dbs = get_session()
+    try:
+        table_cols = {c.name for c in ProjectionInput.__table__.columns}
+        dont_touch = {"id", "created_at", "updated_at", "branch_id", "month"}
+        
+        for payload in payloads:
+            values = {k: v for k, v in payload.items() if k in table_cols}
+            
+            if not values:
+                continue  # Skip invalid payloads
+            
+            ins = pg_insert(ProjectionInput).values(**values)
+            
+            update_map = {
+                k: getattr(ins.excluded, k)
+                for k in values.keys()
+                if k not in dont_touch
+            }
+            
+            stmt = ins.on_conflict_do_update(
+                index_elements=[ProjectionInput.branch_id, ProjectionInput.month],
+                set_={**update_map, "updated_at": func.now()},
+            )
+            
+            dbs.execute(stmt)
+        
+        # Commit all at once
+        dbs.commit()
+    except Exception:
+        dbs.rollback()
+        raise
+    finally:
+        close_session(dbs)
+
+
 REQUIRED = {"branch_id", "month"}
 
 def upsert_projection_estimate(payload: dict):
@@ -68,6 +108,46 @@ def upsert_projection_estimate(payload: dict):
         result = dbs.execute(stmt).scalar_one()
         dbs.commit()
         return {"id": result}
+    except Exception:
+        dbs.rollback()
+        raise
+    finally:
+        close_session(dbs)
+
+
+def upsert_projection_estimate_batch(payloads: list[dict]):
+    """
+    Batch upsert multiple projection estimates in a single transaction.
+    Much faster than multiple individual upsert calls.
+    """
+    dbs = get_session()
+    try:
+        table_cols = {c.name for c in ProjectionEstimate.__table__.columns}
+        dont_touch = {"id", "created_at", "updated_at", "branch_id", "month"}
+        
+        for payload in payloads:
+            values = {k: v for k, v in payload.items() if k in table_cols}
+            missing = REQUIRED - values.keys()
+            if missing:
+                continue  # Skip invalid payloads
+            
+            # Normalize month
+            values["month"] = int(values["month"])
+            if not 1 <= values["month"] <= 12:
+                continue  # Skip invalid months
+            
+            ins = pg_insert(ProjectionEstimate).values(**values)
+            update_map = {k: getattr(ins.excluded, k) for k in values if k not in dont_touch}
+            
+            stmt = ins.on_conflict_do_update(
+                index_elements=[ProjectionEstimate.branch_id, ProjectionEstimate.month],
+                set_={**update_map, "updated_at": func.now()},
+            )
+            
+            dbs.execute(stmt)
+        
+        # Commit all at once
+        dbs.commit()
     except Exception:
         dbs.rollback()
         raise
