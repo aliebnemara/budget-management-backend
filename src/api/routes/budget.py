@@ -10,6 +10,7 @@ from src.models.projection import ProjectionEstimateIn, ProjectionInputModel
 from src.models.projected_allocation_branch import BranchTotalsIn, BranchTotalsOut
 from src.models.projected_allocation_branch_monthly import BranchMonthlyTotalsIn, BranchMonthlyTotalsOut
 from src.services.budget import calculateDefault
+from src.services.smart_ramadan import SmartRamadanSystem
 from src.services.saveProjections import upsert_projection_estimate, upsert_projection_input, upsert_projection_input_batch, upsert_projection_estimate_batch
 from src.services.budget_state import compute_or_reuse
 import traceback
@@ -491,158 +492,123 @@ def get_islamic_calendar_effects(
                 ]
                 
                 if not branch_month_df.empty:
-                    # Calculate weekday averages for 2026 estimation using 2025 data
-                    weekday_avg_non_ramadan = {}  # For non-Ramadan days
-                    weekday_avg_ramadan = {}      # For Ramadan days
+                    # 🧠 SMART RAMADAN SYSTEM: Dynamic reference period selection
+                    # Initialize smart system (one-time per branch processing)
+                    if 'smart_system' not in locals():
+                        smart_config = {
+                            'compare_year': compare_year,
+                            'ramadan_CY': ramadan_CY.strftime('%Y-%m-%d'),
+                            'ramadan_BY': ramadan_BY.strftime('%Y-%m-%d'),
+                            'ramadan_daycount_CY': ramadan_daycount_CY,
+                            'ramadan_daycount_BY': ramadan_daycount_BY
+                        }
+                        smart_system = SmartRamadanSystem(smart_config)
+                        estimation_plan = smart_system.generate_estimation_plan()
+                        print(f"\n🎯 Smart System Activated - Dynamic month and day detection")
                     
-                    if month == 2:
-                        # February 2026 estimation needs two sets of weekday averages:
-                        # 1. Feb 1-17, 2026 (non-Ramadan) → Use Feb 2025 weekday averages (all non-Ramadan)
-                        # 2. Feb 18-28, 2026 (Ramadan) → Use March 2025 Ramadan weekday averages
-                        
-                        # Get February 2025 data (all non-Ramadan)
-                        feb_2025_df = df[
-                            (df['branch_id'] == branch_id) & 
-                            (df['business_date'].dt.year == compare_year) &
-                            (df['business_date'].dt.month == 2)
-                        ].copy()
-                        
-                        if not feb_2025_df.empty:
-                            feb_2025_df['day_of_week'] = feb_2025_df['business_date'].dt.day_name()
-                            daily_totals_feb = feb_2025_df.groupby(['business_date', 'day_of_week'])['gross'].sum().reset_index()
-                            weekday_avg_df = daily_totals_feb.groupby('day_of_week')['gross'].mean()
-                            weekday_avg_non_ramadan = weekday_avg_df.to_dict()
-                            print(f"📊 February 2026 non-Ramadan days (Feb 1-17) - using Feb 2025 weekday averages for branch {branch_id}")
-                        
-                        # Get March 2025 Ramadan data (March 1-30)
-                        march_2025_ramadan = df[
-                            (df['branch_id'] == branch_id) & 
-                            (df['business_date'].dt.year == compare_year) &
-                            (df['business_date'].dt.month == 3) &
-                            (df['business_date'].dt.day <= 30)  # Ramadan days in March 2025
-                        ].copy()
-                        
-                        if not march_2025_ramadan.empty:
-                            march_2025_ramadan['day_of_week'] = march_2025_ramadan['business_date'].dt.day_name()
-                            daily_totals_ramadan = march_2025_ramadan.groupby(['business_date', 'day_of_week'])['gross'].sum().reset_index()
-                            weekday_avg_df_ramadan = daily_totals_ramadan.groupby('day_of_week')['gross'].mean()
-                            weekday_avg_ramadan = weekday_avg_df_ramadan.to_dict()
-                            print(f"📊 February 2026 Ramadan days (Feb 18-28) - using March 2025 Ramadan weekday averages for branch {branch_id}")
+                    # Pre-calculate weekday averages for all unique reference periods in this month
+                    # This is more efficient than recalculating for each day
+                    weekday_avg_cache = {}  # Cache: (source_period_key) -> weekday_averages_dict
+                    eid_values_cache = {}    # Cache: eid_day_number -> actual_value
                     
-                    elif month == 3:
-                        # March 2026 estimation needs multiple reference periods:
-                        # 1. March 1-19, 2026 (Ramadan) → Use March 2025 Ramadan weekday averages
-                        # 2. March 20-23, 2026 (Eid) → Use actual 2025 Eid day values (March 31, Apr 1-3)
-                        # 3. March 24-31, 2026 (non-Ramadan) → Use Feb 2025 weekday averages
+                    if month in estimation_plan:
+                        # Identify unique reference periods needed for this month
+                        unique_references = set()
+                        for day_num in estimation_plan[month].keys():
+                            ref = estimation_plan[month][day_num]
+                            if ref['method'] == 'weekday_average':
+                                # Create cache key from source info
+                                cache_key = (ref['source_day_type'], tuple(ref['source_months']), str(ref.get('source_date_range')))
+                                unique_references.add(cache_key)
                         
-                        # Get March 2025 Ramadan data (March 1-30)
-                        march_2025_ramadan = df[
-                            (df['branch_id'] == branch_id) & 
-                            (df['business_date'].dt.year == compare_year) &
-                            (df['business_date'].dt.month == 3) &
-                            (df['business_date'].dt.day <= 30)
-                        ].copy()
+                        # Calculate weekday averages for each unique reference period
+                        for cache_key in unique_references:
+                            source_day_type, source_months, date_range_str = cache_key
+                            
+                            # Get the first day's reference to extract date range if available
+                            sample_ref = estimation_plan[month][1]
+                            for day_num, ref in estimation_plan[month].items():
+                                ref_key = (ref.get('source_day_type'), tuple(ref.get('source_months', [])), str(ref.get('source_date_range')))
+                                if ref_key == cache_key:
+                                    sample_ref = ref
+                                    break
+                            
+                            # Filter data based on source period type
+                            if source_day_type == 'ramadan' and sample_ref.get('source_date_range'):
+                                # Ramadan period: use date range
+                                start_date, end_date = sample_ref['source_date_range']
+                                period_df = df[
+                                    (df['branch_id'] == branch_id) & 
+                                    (df['business_date'] >= start_date) &
+                                    (df['business_date'] <= end_date)
+                                ].copy()
+                            else:
+                                # Normal days: use entire month(s)
+                                period_df = df[
+                                    (df['branch_id'] == branch_id) & 
+                                    (df['business_date'].dt.year == compare_year) &
+                                    (df['business_date'].dt.month.isin(source_months))
+                                ].copy()
+                            
+                            if not period_df.empty:
+                                period_df['day_of_week'] = period_df['business_date'].dt.day_name()
+                                daily_totals = period_df.groupby(['business_date', 'day_of_week'])['gross'].sum().reset_index()
+                                weekday_avg_df = daily_totals.groupby('day_of_week')['gross'].mean()
+                                weekday_avg_cache[cache_key] = weekday_avg_df.to_dict()
+                                
+                                period_desc = f"{source_day_type} days from months {source_months}"
+                                print(f"📊 Calculated weekday averages for {period_desc} - branch {branch_id}")
                         
-                        if not march_2025_ramadan.empty:
-                            march_2025_ramadan['day_of_week'] = march_2025_ramadan['business_date'].dt.day_name()
-                            daily_totals_ramadan = march_2025_ramadan.groupby(['business_date', 'day_of_week'])['gross'].sum().reset_index()
-                            weekday_avg_df_ramadan = daily_totals_ramadan.groupby('day_of_week')['gross'].mean()
-                            weekday_avg_ramadan = weekday_avg_df_ramadan.to_dict()
-                            print(f"📊 March 2026 Ramadan days (March 1-19) - using March 2025 Ramadan weekday averages for branch {branch_id}")
-                        
-                        # Get 2025 Eid day actual values (March 31, April 1-3)
-                        eid_2025_values = {}
-                        
-                        # March 31, 2025 (1st Eid Day)
-                        march_31_df = df[
-                            (df['branch_id'] == branch_id) & 
-                            (df['business_date'].dt.year == compare_year) &
-                            (df['business_date'].dt.month == 3) &
-                            (df['business_date'].dt.day == 31)
-                        ]
-                        if not march_31_df.empty:
-                            eid_2025_values[1] = float(march_31_df['gross'].sum())
-                        
-                        # April 1-3, 2025 (2nd-4th Eid Days)
-                        for eid_day_num in range(2, 5):  # 2, 3, 4
-                            april_day = eid_day_num - 1  # April 1, 2, 3
-                            april_df = df[
-                                (df['branch_id'] == branch_id) & 
-                                (df['business_date'].dt.year == compare_year) &
-                                (df['business_date'].dt.month == 4) &
-                                (df['business_date'].dt.day == april_day)
-                            ]
-                            if not april_df.empty:
-                                eid_2025_values[eid_day_num] = float(april_df['gross'].sum())
-                        
-                        print(f"📊 March 2026 Eid days (March 20-23) - using actual 2025 Eid day values for branch {branch_id}")
-                        
-                        # For non-Ramadan days in March 2026 (March 24-31), use February 2025 averages
-                        feb_2025_df = df[
-                            (df['branch_id'] == branch_id) & 
-                            (df['business_date'].dt.year == compare_year) &
-                            (df['business_date'].dt.month == 2)
-                        ].copy()
-                        
-                        if not feb_2025_df.empty:
-                            feb_2025_df['day_of_week'] = feb_2025_df['business_date'].dt.day_name()
-                            daily_totals_feb = feb_2025_df.groupby(['business_date', 'day_of_week'])['gross'].sum().reset_index()
-                            weekday_avg_df = daily_totals_feb.groupby('day_of_week')['gross'].mean()
-                            weekday_avg_non_ramadan = weekday_avg_df.to_dict()
-                            print(f"📊 March 2026 non-Ramadan days (March 24-31) - using Feb 2025 weekday averages for branch {branch_id}")
-                    
-                    elif month == 4:
-                        # April 2026: Use April 4-30, 2025 (excluding Eid days 1-3)
-                        april_non_eid = branch_month_df[branch_month_df['business_date'].dt.day > 3].copy()
-                        if not april_non_eid.empty:
-                            april_non_eid['day_of_week'] = april_non_eid['business_date'].dt.day_name()
-                            daily_totals_by_dow = april_non_eid.groupby(['business_date', 'day_of_week'])['gross'].sum().reset_index()
-                            weekday_avg_df = daily_totals_by_dow.groupby('day_of_week')['gross'].mean()
-                            weekday_avg_non_ramadan = weekday_avg_df.to_dict()
-                            print(f"📊 April 2026 weekday averages for branch {branch_id} (from April 4-30, 2025 daily totals)")
+                        # Pre-fetch Eid day values if needed for this month
+                        for day_num, ref in estimation_plan[month].items():
+                            if ref['method'] == 'direct_copy' and ref['eid_day_mapping']:
+                                eid_mapping = ref['eid_day_mapping']
+                                eid_day_num = eid_mapping['eid_day_number']
+                                
+                                if eid_day_num not in eid_values_cache:
+                                    cy_date = eid_mapping['cy_date']
+                                    eid_df = df[
+                                        (df['branch_id'] == branch_id) & 
+                                        (df['business_date'].dt.year == cy_date.year) &
+                                        (df['business_date'].dt.month == cy_date.month) &
+                                        (df['business_date'].dt.day == cy_date.day)
+                                    ]
+                                    if not eid_df.empty:
+                                        eid_values_cache[eid_day_num] = float(eid_df['gross'].sum())
+                                        print(f"📊 Fetched CY Eid Day {eid_day_num} value: {eid_values_cache[eid_day_num]:.2f} - branch {branch_id}")
                     
                     # Group by day to get actual daily totals
                     daily_totals = branch_month_df.groupby(branch_month_df['business_date'].dt.day)['gross'].sum()
                     
                     for day_num, daily_gross in daily_totals.items():
-                        # Calculate estimated value for this day
-                        estimated_value = float(daily_gross)
+                        # 🧠 SMART ESTIMATION: Use dynamic reference period selection
+                        estimated_value = float(daily_gross)  # Default fallback
                         
-                        # Determine which weekday average to use based on month and day
-                        if month == 2:
-                            # February 2026
-                            date_2026 = pd.Timestamp(year=compare_year + 1, month=2, day=day_num)
-                            day_of_week_2026 = date_2026.day_name()
+                        # Get reference info for this specific day
+                        if month in estimation_plan and day_num in estimation_plan[month]:
+                            ref = estimation_plan[month][day_num]
                             
-                            if day_num <= 17:
-                                # Non-Ramadan days (Feb 1-17)
-                                estimated_value = float(weekday_avg_non_ramadan.get(day_of_week_2026, daily_gross))
-                            else:
-                                # Ramadan days (Feb 18-28)
-                                estimated_value = float(weekday_avg_ramadan.get(day_of_week_2026, daily_gross))
-                        
-                        elif month == 3:
-                            # March 2026
-                            date_2026 = pd.Timestamp(year=compare_year + 1, month=3, day=day_num)
-                            day_of_week_2026 = date_2026.day_name()
+                            # Determine day of week for BY date (for weekday averaging)
+                            date_BY = pd.Timestamp(year=budget_year, month=month, day=day_num)
+                            day_of_week_BY = date_BY.day_name()
                             
-                            if day_num <= 19:
-                                # Ramadan days (March 1-19)
-                                estimated_value = float(weekday_avg_ramadan.get(day_of_week_2026, daily_gross))
-                            elif day_num <= 23:
-                                # Eid days (March 20-23) - use actual 2025 Eid day values
-                                # March 20 → 1st Eid, March 21 → 2nd Eid, March 22 → 3rd Eid, March 23 → 4th Eid
-                                eid_day_number = day_num - 19  # 20→1, 21→2, 22→3, 23→4
-                                estimated_value = float(eid_2025_values.get(eid_day_number, daily_gross))
-                            else:
-                                # Non-Ramadan days (March 24-31)
-                                estimated_value = float(weekday_avg_non_ramadan.get(day_of_week_2026, daily_gross))
-                        
-                        elif month == 4 and weekday_avg_non_ramadan:
-                            # April 2026
-                            date_2026 = pd.Timestamp(year=compare_year + 1, month=4, day=day_num)
-                            day_of_week_2026 = date_2026.day_name()
-                            estimated_value = float(weekday_avg_non_ramadan.get(day_of_week_2026, daily_gross))
+                            if ref['method'] == 'direct_copy':
+                                # RULE 1: Eid days - direct copy from CY Eid day
+                                eid_mapping = ref['eid_day_mapping']
+                                eid_day_num = eid_mapping['eid_day_number']
+                                if eid_day_num in eid_values_cache:
+                                    estimated_value = float(eid_values_cache[eid_day_num])
+                                else:
+                                    estimated_value = float(daily_gross)  # Fallback to actual
+                            
+                            elif ref['method'] == 'weekday_average':
+                                # RULE 2 & 3: Ramadan or Normal days - weekday averaging
+                                cache_key = (ref['source_day_type'], tuple(ref['source_months']), str(ref.get('source_date_range')))
+                                if cache_key in weekday_avg_cache:
+                                    weekday_averages = weekday_avg_cache[cache_key]
+                                    estimated_value = float(weekday_averages.get(day_of_week_BY, daily_gross))
+                                else:
+                                    estimated_value = float(daily_gross)  # Fallback to actual
                         
                         daily_sales_data.append({
                             'day': int(day_num),
