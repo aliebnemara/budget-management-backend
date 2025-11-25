@@ -403,7 +403,8 @@ def get_islamic_calendar_effects(
         summarydf = descriptiveCalculations(compare_year, df)
         
         # Merge calculations
-        final_df = ramadan[['branch_id', 'month', 'Ramadan Eid %']].copy()
+        # CRITICAL: Include 'est' from service layer for correct expected sales values
+        final_df = ramadan[['branch_id', 'month', 'Ramadan Eid %', 'est']].copy()
         final_df = pd.merge(final_df, muh[['branch_id', 'month', 'Muharram %']],
                             on=['branch_id', 'month'], how='left')
         final_df = pd.merge(final_df, eid2[['branch_id', 'month', 'Eid2 %']],
@@ -429,13 +430,14 @@ def get_islamic_calendar_effects(
                     'est_sales_no_eid2': None
                 }
             
-            ramadan_pct = row['ramadan_eid_pct']
             muharram_pct = row['muharram_pct']
             eid2_pct = row['eid2_pct']
             
+            # CRITICAL: Use 'est' from service layer for Ramadan (correct calculation)
+            # Only recalculate for Muharram and Eid2
             return {
                 'sales_CY': ts,
-                'est_sales_no_ramadan': ts / (1 + ramadan_pct / 100.0) if not pd.isna(ramadan_pct) else ts,
+                'est_sales_no_ramadan': row['est'] if 'est' in row and not pd.isna(row['est']) else ts,
                 'est_sales_no_muharram': ts / (1 + muharram_pct / 100.0) if not pd.isna(muharram_pct) else ts,
                 'est_sales_no_eid2': ts / (1 + eid2_pct / 100.0) if not pd.isna(eid2_pct) else ts
             }
