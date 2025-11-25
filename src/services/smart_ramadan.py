@@ -230,6 +230,21 @@ class SmartRamadanSystem:
             # Strategy: Look for nearby normal months
             candidate_months = []
             
+            # SPECIAL CASE: April - use April CY excluding Eid days even though it's "affected"
+            if by_month == 4 and by_month in cy_affected_months:
+                # April 2026 is normal, April 2025 has Eid days 1-3
+                # Use April 2025 but will filter to exclude Eid days
+                candidate_months.append(4)
+                result['method'] = 'weekday_average'
+                result['source_period'] = f"CY April (excluding Eid days 1-3)"
+                result['source_months'] = candidate_months
+                result['source_day_type'] = 'normal'
+                # Set date range to exclude Eid days (April 1-3, 2025)
+                april_start_excluding_eid = self.ramadan_start_CY.replace(month=4, day=4)
+                april_end = self.ramadan_start_CY.replace(month=4, day=30)
+                result['source_date_range'] = (april_start_excluding_eid, april_end)
+                return result
+            
             # If BY month is not affected in CY, use same month
             if by_month not in cy_affected_months:
                 candidate_months.append(by_month)
