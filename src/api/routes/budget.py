@@ -627,6 +627,16 @@ def get_islamic_calendar_effects(
                         return 0
                     return f
                 
+                # Calculate daily_sales total for comparison
+                daily_total = sum(day['estimated'] for day in daily_sales_data) if daily_sales_data else 0
+                
+                # DEBUG: Check for mismatches
+                if branch_id == 189 and month == 4:
+                    print(f"\n🔍 DEBUG April 2026 - Branch 189:")
+                    print(f"   est_sales_no_ramadan (tile): {row['est_sales_no_ramadan']:.2f}")
+                    print(f"   daily_sales total (table): {daily_total:.2f}")
+                    print(f"   Difference: {abs(row['est_sales_no_ramadan'] - daily_total):.2f}")
+                
                 # Add month data with daily breakdown
                 month_data = {
                     'month': month,
