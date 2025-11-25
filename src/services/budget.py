@@ -660,8 +660,16 @@ def Ramadan_Eid_Calculations(compare_year, ramadan_daycount_CY, ramadan_daycount
                 actual=('gross', 'sum'),
                 est=('gross_BY', 'sum')
             ).reset_index()
-            sum_sales["Ramadan Eid %"] = round(
-                ((sum_sales["est"] - sum_sales["actual"]) / sum_sales["actual"]) * 100, 2)
+            
+            # Replace NaN and inf values with 0
+            sum_sales = sum_sales.fillna(0)
+            sum_sales = sum_sales.replace([float('inf'), float('-inf')], 0)
+            # Calculate Ramadan Eid % with proper handling for zero actual values
+            sum_sales["Ramadan Eid %"] = sum_sales.apply(
+                lambda row: round(((row["est"] - row["actual"]) / row["actual"]) * 100, 2) 
+                if row["actual"] != 0 else 0, 
+                axis=1
+            )
             sum_sales["branch_id"] = branch
             final_df = pd.concat([final_df, sum_sales], ignore_index=True)
 
