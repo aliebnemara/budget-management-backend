@@ -62,6 +62,9 @@ class SmartRamadanSystem:
         """
         Automatically detect which months are affected by Ramadan/Eid in both years
         
+        IMPORTANT: BY months include ALL CY affected months for consistent tile calculations
+        (even if BY doesn't have Ramadan/Eid in those months)
+        
         Returns:
             Dictionary with 'CY' and 'BY' keys, each containing list of affected month numbers
         """
@@ -80,6 +83,11 @@ class SmartRamadanSystem:
             by_months.add(current.month)
             current += timedelta(days=1)
         
+        # CRITICAL: Also include all CY affected months in BY for tile calculation consistency
+        # This ensures months like April 2026 are processed even if they have no Ramadan/Eid in BY
+        # (needed because service layer calculates effects based on CY months)
+        by_months.update(cy_months)
+        
         result = {
             'CY': sorted(list(cy_months)),
             'BY': sorted(list(by_months))
@@ -88,6 +96,7 @@ class SmartRamadanSystem:
         print(f"\n🎯 Affected Months Detected:")
         print(f"   CY {self.compare_year}: {[calendar.month_name[m] for m in result['CY']]}")
         print(f"   BY {self.budget_year}: {[calendar.month_name[m] for m in result['BY']]}")
+        print(f"   💡 BY includes all CY months for consistent tile calculations")
         
         return result
     
