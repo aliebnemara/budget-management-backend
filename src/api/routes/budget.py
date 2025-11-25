@@ -312,10 +312,13 @@ def get_islamic_calendar_effects(
     try:
         import pandas as pd
         import os
-        from src.services.Ramadan_Eid_Calc import Ramadan_Eid_Calculations
-        from src.services.Muharram_calc import Muharram_calculations
-        from src.services.Eid2_calc import Eid2Calculations
-        from src.services.descriptive import descriptiveCalculations
+        # Import calculation functions from budget.py
+        from src.services.budget import (
+            Ramadan_Eid_Calculations,
+            Muharram_calculations,
+            Eid2Calculations,
+            descriptiveCalculations
+        )
         
         # Extract parameters
         branch_ids = request.get("branch_ids", [])
