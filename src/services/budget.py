@@ -593,31 +593,50 @@ def Ramadan_Eid_Calculations(compare_year, ramadan_daycount_CY, ramadan_daycount
                     (branch_sales["year_CY"] == compare_year)
                 ]
                 if len(partial_cy_rows) > 0:
-                    temp_month = mon - 1
-                    temp_year = compare_year
-                    while True:
-                        if temp_month <= 0:
-                            temp_month = 12
-                            temp_year = compare_year - 1
-                        if len(branch_sales[
-                            (branch_sales["ramadan_CY"].isin([1, 2])) &
-                            (branch_sales["month_CY"] == temp_month) &
-                            (branch_sales["year_CY"] == temp_year)
-                        ]) == 0:
-                            day_sales_non_ramadan = branch_sales[
+                    # SPECIAL CASE: April with Eid in CY but no Ramadan/Eid in BY
+                    if mon == 4:
+                        # Use April 2025 excluding Eid days (days 4-30 only)
+                        day_sales_non_ramadan = branch_sales[
+                            (branch_sales["month_CY"] == mon) & 
+                            (branch_sales["year_CY"] == compare_year) &
+                            (~branch_sales["ramadan_CY"].isin([1, 2]))  # Exclude Ramadan and Eid
+                        ].groupby("day_of_week")["gross"].mean().reset_index()
+                        
+                        for _, v in day_sales_non_ramadan.iterrows():
+                            # Apply to ALL April 2026 days (all are normal days)
+                            branch_sales.loc[
+                                (branch_sales["month_BY"] == mon) &
+                                (branch_sales["year_BY"] == compare_year + 1) &
+                                (branch_sales["day_of_week_BY"] == v["day_of_week"]),
+                                "gross_BY"
+                            ] = v["gross"]
+                    else:
+                        # Original logic for other months
+                        temp_month = mon - 1
+                        temp_year = compare_year
+                        while True:
+                            if temp_month <= 0:
+                                temp_month = 12
+                                temp_year = compare_year - 1
+                            if len(branch_sales[
+                                (branch_sales["ramadan_CY"].isin([1, 2])) &
                                 (branch_sales["month_CY"] == temp_month) &
                                 (branch_sales["year_CY"] == temp_year)
-                            ].groupby("day_of_week")["gross"].mean().reset_index()
-                            for _, v in day_sales_non_ramadan.iterrows():
-                                branch_sales.loc[
-                                    (branch_sales["ramadan_BY"] == 3) &
-                                    (branch_sales["month_BY"] == mon) &
-                                    (branch_sales["day_of_week_BY"] == v["day_of_week"]),
-                                    "gross_BY"
-                                ] = v["gross"]
-                            break
-                        else:
-                            temp_month -= 1
+                            ]) == 0:
+                                day_sales_non_ramadan = branch_sales[
+                                    (branch_sales["month_CY"] == temp_month) &
+                                    (branch_sales["year_CY"] == temp_year)
+                                ].groupby("day_of_week")["gross"].mean().reset_index()
+                                for _, v in day_sales_non_ramadan.iterrows():
+                                    branch_sales.loc[
+                                        (branch_sales["ramadan_BY"] == 3) &
+                                        (branch_sales["month_BY"] == mon) &
+                                        (branch_sales["day_of_week_BY"] == v["day_of_week"]),
+                                        "gross_BY"
+                                    ] = v["gross"]
+                                break
+                            else:
+                                temp_month -= 1
                 else:
                     # Use same month CY data
                     # For April, exclude Eid days (ramadan_CY == 2)
