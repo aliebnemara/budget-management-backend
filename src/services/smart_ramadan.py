@@ -239,9 +239,10 @@ class SmartRamadanSystem:
                 result['source_period'] = f"CY April (excluding Eid days 1-3)"
                 result['source_months'] = candidate_months
                 result['source_day_type'] = 'normal'
-                # Set date range to exclude Eid days (April 1-3, 2025)
-                april_start_excluding_eid = self.ramadan_start_CY.replace(month=4, day=4)
-                april_end = self.ramadan_start_CY.replace(month=4, day=30)
+                # Set date range to exclude Eid days (April 4-30, 2025)
+                from datetime import datetime
+                april_start_excluding_eid = datetime(self.compare_year, 4, 4)
+                april_end = datetime(self.compare_year, 4, 30)
                 result['source_date_range'] = (april_start_excluding_eid, april_end)
                 return result
             
