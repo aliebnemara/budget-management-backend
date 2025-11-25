@@ -345,9 +345,19 @@ def get_islamic_calendar_effects(
         eid2_CY = pd.to_datetime(request.get("eid2_CY", "2025-06-06"))
         eid2_BY = pd.to_datetime(request.get("eid2_BY", "2026-05-27"))
         
-        # Load BaseData.pkl
-        base_dir = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-        df = pd.read_pickle(os.path.join(base_dir, "BaseData.pkl"))
+        # Load BaseData.pkl (using absolute path for reliability)
+        # File location: /home/user/backend/Backend/src/api/routes/budget.py
+        # Need to go up 4 levels: routes -> api -> src -> Backend
+        base_dir = os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
+        pkl_path = os.path.join(base_dir, "BaseData.pkl")
+        
+        if not os.path.exists(pkl_path):
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail=f"BaseData.pkl not found at {pkl_path}"
+            )
+        
+        df = pd.read_pickle(pkl_path)
         
         # Filter by selected branches
         df = df[df["branch_id"].isin(branch_ids)]
