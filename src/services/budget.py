@@ -603,10 +603,29 @@ def Ramadan_Eid_Calculations(compare_year, ramadan_daycount_CY, ramadan_daycount
                             (branch_sales["business_date"].dt.day > 3)  # Exclude days 1-3 (Eid)
                         ]
                         
+                        # DEBUG: Print what we're using as reference
+                        if branch == 189:  # Debug for Al Abraaj Sehla
+                            print(f"\n🔍 DEBUG April Branch 189:")
+                            print(f"   April 2025 source days (>3): {len(april_source)}")
+                            print(f"   April 2025 total gross: {april_source['gross'].sum():,.2f}")
+                        
                         # Calculate weekday averages from days 4-30
                         day_sales_non_ramadan = april_source.groupby("day_of_week")["gross"].mean().reset_index()
                         
+                        if branch == 189:
+                            print(f"   Weekday averages:")
+                            for _, row in day_sales_non_ramadan.iterrows():
+                                print(f"     {row['day_of_week']:9s}: {row['gross']:8,.2f}")
+                        
                         # Apply to ALL April 2026 days
+                        april_2026_rows = branch_sales[
+                            (branch_sales["month_BY"] == 4) &
+                            (branch_sales["year_BY"] == compare_year + 1)
+                        ]
+                        
+                        if branch == 189:
+                            print(f"   April 2026 target rows: {len(april_2026_rows)}")
+                        
                         for _, v in day_sales_non_ramadan.iterrows():
                             branch_sales.loc[
                                 (branch_sales["month_BY"] == 4) &
@@ -614,6 +633,14 @@ def Ramadan_Eid_Calculations(compare_year, ramadan_daycount_CY, ramadan_daycount
                                 (branch_sales["day_of_week_BY"] == v["day_of_week"]),
                                 "gross_BY"
                             ] = v["gross"]
+                        
+                        if branch == 189:
+                            april_2026_after = branch_sales[
+                                (branch_sales["month_BY"] == 4) &
+                                (branch_sales["year_BY"] == compare_year + 1)
+                            ]
+                            print(f"   April 2026 gross_BY sum: {april_2026_after['gross_BY'].sum():,.2f}")
+                            print(f"   Expected: ~57,299 BHD")
                     else:
                         # Original logic for other months
                         temp_month = mon - 1
@@ -643,22 +670,9 @@ def Ramadan_Eid_Calculations(compare_year, ramadan_daycount_CY, ramadan_daycount
                                 temp_month -= 1
                 else:
                     # Use same month CY data
-                    # For April, exclude Eid days (ramadan_CY == 2)
-                    if mon == 4:
-                        day_sales_non_ramadan = branch_sales[
-                            (branch_sales["month_CY"] == mon) & 
-                            (branch_sales["year_CY"] == compare_year) &
-                            (~branch_sales["ramadan_CY"].isin([1, 2]))  # Exclude Ramadan and Eid days
-                        ].groupby("day_of_week")["gross"].mean().reset_index()
-                        
-                        for _, v in day_sales_non_ramadan.iterrows():
-                            # April 2026: Apply to month 4 regardless of ramadan_BY status
-                            branch_sales.loc[
-                                (branch_sales["month_BY"] == mon) &
-                                (branch_sales["day_of_week_BY"] == v["day_of_week"]),
-                                "gross_BY"
-                            ] = v["gross"]
-                    else:
+                    # NOTE: April (month 4) is already handled above in partial_cy_rows block
+                    # Do NOT process April here to avoid overriding the correct calculation
+                    if mon != 4:  # Skip April
                         day_sales_non_ramadan = branch_sales[
                             (branch_sales["month_CY"] == mon) & (
                                 branch_sales["year_CY"] == compare_year)
