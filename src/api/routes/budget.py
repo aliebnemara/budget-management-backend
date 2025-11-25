@@ -284,6 +284,211 @@ def get_weekend_effect(
         )
 
 
+@budgetRouter.post("/islamic-calendar-effects", status_code=status.HTTP_200_OK)
+def get_islamic_calendar_effects(
+    request: dict,
+    current_user: dict = Depends(get_current_user)
+):
+    """
+    Calculate Islamic calendar effects independently (no dependency on home page cache)
+    Directly accesses BaseData.pkl and calculates Ramadan, Muharram, and Eid al-Adha impacts
+    
+    Request body: {
+        "branch_ids": [1, 2, 3],
+        "compare_year": 2025,
+        "budget_year": 2026,
+        "ramadan_CY": "2025-03-01",
+        "ramadan_BY": "2026-02-18",
+        "ramadan_daycount_CY": 30,
+        "ramadan_daycount_BY": 30,
+        "muharram_CY": "2025-07-27",
+        "muharram_BY": "2026-07-16",
+        "muharram_daycount_CY": 10,
+        "muharram_daycount_BY": 10,
+        "eid2_CY": "2025-06-06",
+        "eid2_BY": "2026-05-27"
+    }
+    """
+    try:
+        import pandas as pd
+        import os
+        from src.services.Ramadan_Eid_Calc import Ramadan_Eid_Calculations
+        from src.services.Muharram_calc import Muharram_calculations
+        from src.services.Eid2_calc import Eid2Calculations
+        from src.services.descriptive import descriptiveCalculations
+        
+        # Extract parameters
+        branch_ids = request.get("branch_ids", [])
+        compare_year = request.get("compare_year", 2025)
+        budget_year = request.get("budget_year", 2026)
+        
+        if not branch_ids:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="branch_ids is required"
+            )
+        
+        # Islamic calendar dates
+        ramadan_CY = pd.to_datetime(request.get("ramadan_CY", "2025-03-01"))
+        ramadan_BY = pd.to_datetime(request.get("ramadan_BY", "2026-02-18"))
+        ramadan_daycount_CY = request.get("ramadan_daycount_CY", 30)
+        ramadan_daycount_BY = request.get("ramadan_daycount_BY", 30)
+        
+        muharram_CY = pd.to_datetime(request.get("muharram_CY", "2025-07-27"))
+        muharram_BY = pd.to_datetime(request.get("muharram_BY", "2026-07-16"))
+        muharram_daycount_CY = request.get("muharram_daycount_CY", 10)
+        muharram_daycount_BY = request.get("muharram_daycount_BY", 10)
+        
+        eid2_CY = pd.to_datetime(request.get("eid2_CY", "2025-06-06"))
+        eid2_BY = pd.to_datetime(request.get("eid2_BY", "2026-05-27"))
+        
+        # Load BaseData.pkl
+        base_dir = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+        df = pd.read_pickle(os.path.join(base_dir, "BaseData.pkl"))
+        
+        # Filter by selected branches
+        df = df[df["branch_id"].isin(branch_ids)]
+        
+        if df.empty:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="No data found for selected branches"
+            )
+        
+        # Calculate Islamic calendar effects
+        ramadan = Ramadan_Eid_Calculations(
+            compare_year,
+            ramadan_daycount_CY, ramadan_daycount_BY,
+            ramadan_CY, ramadan_BY,
+            df
+        )
+        
+        muh = Muharram_calculations(
+            compare_year,
+            muharram_CY, muharram_BY,
+            muharram_daycount_CY, muharram_daycount_BY,
+            df
+        )
+        
+        eid2 = Eid2Calculations(compare_year, eid2_CY, eid2_BY, df)
+        
+        # Get descriptive statistics (actual sales)
+        summarydf = descriptiveCalculations(compare_year, df)
+        
+        # Merge calculations
+        final_df = ramadan[['branch_id', 'month', 'Ramadan Eid %']].copy()
+        final_df = pd.merge(final_df, muh[['branch_id', 'month', 'Muharram %']],
+                            on=['branch_id', 'month'], how='left')
+        final_df = pd.merge(final_df, eid2[['branch_id', 'month', 'Eid2 %']],
+                            on=['branch_id', 'month'], how='left')
+        final_df = pd.merge(final_df, summarydf[['branch_id', 'month', 'total_sales']],
+                            on=['branch_id', 'month'], how='left')
+        
+        # Rename columns for clarity
+        final_df = final_df.rename(columns={
+            'Ramadan Eid %': 'ramadan_eid_pct',
+            'Muharram %': 'muharram_pct',
+            'Eid2 %': 'eid2_pct'
+        })
+        
+        # Calculate derived fields
+        def calculate_baseline(row):
+            ts = row['total_sales']
+            if pd.isna(ts) or ts is None:
+                return {
+                    'sales_CY': None,
+                    'est_sales_no_ramadan': None,
+                    'est_sales_no_muharram': None,
+                    'est_sales_no_eid2': None
+                }
+            
+            ramadan_pct = row['ramadan_eid_pct']
+            muharram_pct = row['muharram_pct']
+            eid2_pct = row['eid2_pct']
+            
+            return {
+                'sales_CY': ts,
+                'est_sales_no_ramadan': ts / (1 + ramadan_pct / 100.0) if not pd.isna(ramadan_pct) else ts,
+                'est_sales_no_muharram': ts / (1 + muharram_pct / 100.0) if not pd.isna(muharram_pct) else ts,
+                'est_sales_no_eid2': ts / (1 + eid2_pct / 100.0) if not pd.isna(eid2_pct) else ts
+            }
+        
+        # Apply calculations
+        derived = final_df.apply(calculate_baseline, axis=1, result_type='expand')
+        final_df = pd.concat([final_df, derived], axis=1)
+        
+        # Get branch details from database
+        from src.core.db import get_session, close_session
+        from src.db.dbtables import Branch, Brand
+        
+        dbs = get_session()
+        try:
+            # Build response structure
+            brands_dict = {}
+            
+            for _, row in final_df.iterrows():
+                branch_id = int(row['branch_id'])
+                month = int(row['month'])
+                
+                # Get branch info
+                branch = dbs.query(Branch).filter(Branch.id == branch_id).first()
+                if not branch:
+                    continue
+                
+                brand_id = branch.brand_id
+                brand = dbs.query(Brand).filter(Brand.id == brand_id).first()
+                if not brand:
+                    continue
+                
+                # Initialize brand structure
+                if brand_id not in brands_dict:
+                    brands_dict[brand_id] = {
+                        'brand_id': brand_id,
+                        'brand_name': brand.name,
+                        'branches': {}
+                    }
+                
+                # Initialize branch structure
+                if branch_id not in brands_dict[brand_id]['branches']:
+                    brands_dict[brand_id]['branches'][branch_id] = {
+                        'branch_id': branch_id,
+                        'branch_name': branch.name,
+                        'months': []
+                    }
+                
+                # Add month data
+                month_data = {
+                    'month': month,
+                    'sales_CY': float(row['sales_CY']) if not pd.isna(row['sales_CY']) else None,
+                    'est_sales_no_ramadan': float(row['est_sales_no_ramadan']) if not pd.isna(row['est_sales_no_ramadan']) else None,
+                    'est_sales_no_muharram': float(row['est_sales_no_muharram']) if not pd.isna(row['est_sales_no_muharram']) else None,
+                    'est_sales_no_eid2': float(row['est_sales_no_eid2']) if not pd.isna(row['est_sales_no_eid2']) else None,
+                    'ramadan_eid_pct': float(row['ramadan_eid_pct']) if not pd.isna(row['ramadan_eid_pct']) else None,
+                    'muharram_pct': float(row['muharram_pct']) if not pd.isna(row['muharram_pct']) else None,
+                    'eid2_pct': float(row['eid2_pct']) if not pd.isna(row['eid2_pct']) else None
+                }
+                
+                brands_dict[brand_id]['branches'][branch_id]['months'].append(month_data)
+            
+            # Convert to list structure
+            result = []
+            for brand_data in brands_dict.values():
+                brand_data['branches'] = list(brand_data['branches'].values())
+                result.append(brand_data)
+            
+            return {'data': result}
+            
+        finally:
+            close_session(dbs)
+        
+    except Exception as e:
+        traceback.print_exc()
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to calculate Islamic calendar effects: {str(e)}"
+        )
+
+
 @budgetRouter.post("/home", status_code=status.HTTP_202_ACCEPTED)
 def defaultCalculationHome(current_user: dict = Depends(get_current_user)):
     try:
