@@ -616,16 +616,25 @@ def get_islamic_calendar_effects(
                             'estimated': estimated_value
                         })
                 
+                # Helper function to safely convert to float, replacing inf/nan with None
+                def safe_float(value):
+                    if pd.isna(value):
+                        return None
+                    f = float(value)
+                    if f == float('inf') or f == float('-inf'):
+                        return 0
+                    return f
+                
                 # Add month data with daily breakdown
                 month_data = {
                     'month': month,
-                    'sales_CY': float(row['sales_CY']) if not pd.isna(row['sales_CY']) else None,
-                    'est_sales_no_ramadan': float(row['est_sales_no_ramadan']) if not pd.isna(row['est_sales_no_ramadan']) else None,
-                    'est_sales_no_muharram': float(row['est_sales_no_muharram']) if not pd.isna(row['est_sales_no_muharram']) else None,
-                    'est_sales_no_eid2': float(row['est_sales_no_eid2']) if not pd.isna(row['est_sales_no_eid2']) else None,
-                    'ramadan_eid_pct': float(row['ramadan_eid_pct']) if not pd.isna(row['ramadan_eid_pct']) else None,
-                    'muharram_pct': float(row['muharram_pct']) if not pd.isna(row['muharram_pct']) else None,
-                    'eid2_pct': float(row['eid2_pct']) if not pd.isna(row['eid2_pct']) else None,
+                    'sales_CY': safe_float(row['sales_CY']),
+                    'est_sales_no_ramadan': safe_float(row['est_sales_no_ramadan']),
+                    'est_sales_no_muharram': safe_float(row['est_sales_no_muharram']),
+                    'est_sales_no_eid2': safe_float(row['est_sales_no_eid2']),
+                    'ramadan_eid_pct': safe_float(row['ramadan_eid_pct']),
+                    'muharram_pct': safe_float(row['muharram_pct']),
+                    'eid2_pct': safe_float(row['eid2_pct']),
                     'daily_sales': daily_sales_data  # Add actual daily sales array
                 }
                 
