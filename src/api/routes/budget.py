@@ -536,8 +536,8 @@ def get_islamic_calendar_effects(
                                     break
                             
                             # Filter data based on source period type
-                            if source_day_type == 'ramadan' and sample_ref.get('source_date_range'):
-                                # Ramadan period: use date range
+                            if sample_ref.get('source_date_range'):
+                                # Use specific date range (Ramadan period OR April excluding Eid)
                                 start_date, end_date = sample_ref['source_date_range']
                                 period_df = df[
                                     (df['branch_id'] == branch_id) & 
