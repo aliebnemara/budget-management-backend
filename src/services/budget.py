@@ -265,6 +265,41 @@ def dataframe_to_brand_json(df: pd.DataFrame, config: defaultBudgetModel) -> Lis
                 "muharram_pct": _none_if_nan(row.get("muharram_pct")),
                 "eid2_pct": _none_if_nan(row.get("eid2_pct")),
             }
+            
+            # Calculate Islamic calendar effect fields for frontend
+            # sales_CY = Comparison Year actual sales (with Islamic effects)
+            # est_sales_no_X = Expected sales without X event (baseline)
+            if ts is not None:
+                month_payload["sales_CY"] = ts  # Actual sales from comparison year (2025)
+                
+                # Calculate baseline sales by removing each Islamic effect
+                ramadan_pct = _none_if_nan(row.get("ramadan_eid_pct"))
+                muharram_pct = _none_if_nan(row.get("muharram_pct"))
+                eid2_pct = _none_if_nan(row.get("eid2_pct"))
+                
+                # Formula: baseline = actual / (1 + effect_pct/100)
+                # If Ramadan increased sales by 10%, then actual = baseline * 1.10
+                # So baseline = actual / 1.10
+                if ramadan_pct is not None:
+                    month_payload["est_sales_no_ramadan"] = ts / (1 + ramadan_pct / 100.0)
+                else:
+                    month_payload["est_sales_no_ramadan"] = ts
+                
+                if muharram_pct is not None:
+                    month_payload["est_sales_no_muharram"] = ts / (1 + muharram_pct / 100.0)
+                else:
+                    month_payload["est_sales_no_muharram"] = ts
+                
+                if eid2_pct is not None:
+                    month_payload["est_sales_no_eid2"] = ts / (1 + eid2_pct / 100.0)
+                else:
+                    month_payload["est_sales_no_eid2"] = ts
+            else:
+                # No sales data available
+                month_payload["sales_CY"] = None
+                month_payload["est_sales_no_ramadan"] = None
+                month_payload["est_sales_no_muharram"] = None
+                month_payload["est_sales_no_eid2"] = None
             # NEW: only include when fallback happened
             if (ts is not None) and row.get("used_fallback"):
                 month_payload["used_fallback"] = True
