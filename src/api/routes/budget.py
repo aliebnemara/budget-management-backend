@@ -3,6 +3,7 @@ from fastapi import APIRouter, File, Query, UploadFile, status, HTTPException, D
 from fastapi.responses import JSONResponse, StreamingResponse
 from src.models.branch_list import BranchListOut
 import pandas as pd
+import calendar
 from io import BytesIO
 from src.models.budget import defaultBudgetModel
 from src.models.projection import ProjectionEstimateIn, ProjectionInputModel
@@ -359,8 +360,20 @@ def get_islamic_calendar_effects(
         
         df = pd.read_pickle(pkl_path)
         
+        # DEBUG: Log total data before filtering
+        print(f"📊 Total rows in BaseData.pkl: {len(df)}")
+        print(f"📊 Date range: {df['business_date'].min()} to {df['business_date'].max()}")
+        print(f"📊 Requested branch_ids: {branch_ids}")
+        
         # Filter by selected branches
         df = df[df["branch_id"].isin(branch_ids)]
+        
+        # DEBUG: Log filtered data
+        print(f"📊 Rows after branch filter: {len(df)}")
+        print(f"📊 Unique branches in filtered data: {df['branch_id'].unique().tolist()}")
+        if not df.empty:
+            april_2025 = df[(df['business_date'].dt.year == 2025) & (df['business_date'].dt.month == 4)]
+            print(f"📊 April 2025 rows: {len(april_2025)}, Total gross: {april_2025['gross'].sum():.2f}")
         
         if df.empty:
             raise HTTPException(
@@ -469,7 +482,175 @@ def get_islamic_calendar_effects(
                         'months': []
                     }
                 
-                # Add month data
+                # Get ACTUAL daily sales for this branch and month from BaseData
+                daily_sales_data = []
+                branch_month_df = df[
+                    (df['branch_id'] == branch_id) & 
+                    (df['business_date'].dt.year == compare_year) &
+                    (df['business_date'].dt.month == month)
+                ]
+                
+                if not branch_month_df.empty:
+                    # Calculate weekday averages for 2026 estimation using 2025 data
+                    weekday_avg_non_ramadan = {}  # For non-Ramadan days
+                    weekday_avg_ramadan = {}      # For Ramadan days
+                    
+                    if month == 2:
+                        # February 2026 estimation needs two sets of weekday averages:
+                        # 1. Feb 1-17, 2026 (non-Ramadan) → Use Feb 2025 weekday averages (all non-Ramadan)
+                        # 2. Feb 18-28, 2026 (Ramadan) → Use March 2025 Ramadan weekday averages
+                        
+                        # Get February 2025 data (all non-Ramadan)
+                        feb_2025_df = df[
+                            (df['branch_id'] == branch_id) & 
+                            (df['business_date'].dt.year == compare_year) &
+                            (df['business_date'].dt.month == 2)
+                        ].copy()
+                        
+                        if not feb_2025_df.empty:
+                            feb_2025_df['day_of_week'] = feb_2025_df['business_date'].dt.day_name()
+                            daily_totals_feb = feb_2025_df.groupby(['business_date', 'day_of_week'])['gross'].sum().reset_index()
+                            weekday_avg_df = daily_totals_feb.groupby('day_of_week')['gross'].mean()
+                            weekday_avg_non_ramadan = weekday_avg_df.to_dict()
+                            print(f"📊 February 2026 non-Ramadan days (Feb 1-17) - using Feb 2025 weekday averages for branch {branch_id}")
+                        
+                        # Get March 2025 Ramadan data (March 1-30)
+                        march_2025_ramadan = df[
+                            (df['branch_id'] == branch_id) & 
+                            (df['business_date'].dt.year == compare_year) &
+                            (df['business_date'].dt.month == 3) &
+                            (df['business_date'].dt.day <= 30)  # Ramadan days in March 2025
+                        ].copy()
+                        
+                        if not march_2025_ramadan.empty:
+                            march_2025_ramadan['day_of_week'] = march_2025_ramadan['business_date'].dt.day_name()
+                            daily_totals_ramadan = march_2025_ramadan.groupby(['business_date', 'day_of_week'])['gross'].sum().reset_index()
+                            weekday_avg_df_ramadan = daily_totals_ramadan.groupby('day_of_week')['gross'].mean()
+                            weekday_avg_ramadan = weekday_avg_df_ramadan.to_dict()
+                            print(f"📊 February 2026 Ramadan days (Feb 18-28) - using March 2025 Ramadan weekday averages for branch {branch_id}")
+                    
+                    elif month == 3:
+                        # March 2026 estimation needs multiple reference periods:
+                        # 1. March 1-19, 2026 (Ramadan) → Use March 2025 Ramadan weekday averages
+                        # 2. March 20-23, 2026 (Eid) → Use actual 2025 Eid day values (March 31, Apr 1-3)
+                        # 3. March 24-31, 2026 (non-Ramadan) → Use Feb 2025 weekday averages
+                        
+                        # Get March 2025 Ramadan data (March 1-30)
+                        march_2025_ramadan = df[
+                            (df['branch_id'] == branch_id) & 
+                            (df['business_date'].dt.year == compare_year) &
+                            (df['business_date'].dt.month == 3) &
+                            (df['business_date'].dt.day <= 30)
+                        ].copy()
+                        
+                        if not march_2025_ramadan.empty:
+                            march_2025_ramadan['day_of_week'] = march_2025_ramadan['business_date'].dt.day_name()
+                            daily_totals_ramadan = march_2025_ramadan.groupby(['business_date', 'day_of_week'])['gross'].sum().reset_index()
+                            weekday_avg_df_ramadan = daily_totals_ramadan.groupby('day_of_week')['gross'].mean()
+                            weekday_avg_ramadan = weekday_avg_df_ramadan.to_dict()
+                            print(f"📊 March 2026 Ramadan days (March 1-19) - using March 2025 Ramadan weekday averages for branch {branch_id}")
+                        
+                        # Get 2025 Eid day actual values (March 31, April 1-3)
+                        eid_2025_values = {}
+                        
+                        # March 31, 2025 (1st Eid Day)
+                        march_31_df = df[
+                            (df['branch_id'] == branch_id) & 
+                            (df['business_date'].dt.year == compare_year) &
+                            (df['business_date'].dt.month == 3) &
+                            (df['business_date'].dt.day == 31)
+                        ]
+                        if not march_31_df.empty:
+                            eid_2025_values[1] = float(march_31_df['gross'].sum())
+                        
+                        # April 1-3, 2025 (2nd-4th Eid Days)
+                        for eid_day_num in range(2, 5):  # 2, 3, 4
+                            april_day = eid_day_num - 1  # April 1, 2, 3
+                            april_df = df[
+                                (df['branch_id'] == branch_id) & 
+                                (df['business_date'].dt.year == compare_year) &
+                                (df['business_date'].dt.month == 4) &
+                                (df['business_date'].dt.day == april_day)
+                            ]
+                            if not april_df.empty:
+                                eid_2025_values[eid_day_num] = float(april_df['gross'].sum())
+                        
+                        print(f"📊 March 2026 Eid days (March 20-23) - using actual 2025 Eid day values for branch {branch_id}")
+                        
+                        # For non-Ramadan days in March 2026 (March 24-31), use February 2025 averages
+                        feb_2025_df = df[
+                            (df['branch_id'] == branch_id) & 
+                            (df['business_date'].dt.year == compare_year) &
+                            (df['business_date'].dt.month == 2)
+                        ].copy()
+                        
+                        if not feb_2025_df.empty:
+                            feb_2025_df['day_of_week'] = feb_2025_df['business_date'].dt.day_name()
+                            daily_totals_feb = feb_2025_df.groupby(['business_date', 'day_of_week'])['gross'].sum().reset_index()
+                            weekday_avg_df = daily_totals_feb.groupby('day_of_week')['gross'].mean()
+                            weekday_avg_non_ramadan = weekday_avg_df.to_dict()
+                            print(f"📊 March 2026 non-Ramadan days (March 24-31) - using Feb 2025 weekday averages for branch {branch_id}")
+                    
+                    elif month == 4:
+                        # April 2026: Use April 4-30, 2025 (excluding Eid days 1-3)
+                        april_non_eid = branch_month_df[branch_month_df['business_date'].dt.day > 3].copy()
+                        if not april_non_eid.empty:
+                            april_non_eid['day_of_week'] = april_non_eid['business_date'].dt.day_name()
+                            daily_totals_by_dow = april_non_eid.groupby(['business_date', 'day_of_week'])['gross'].sum().reset_index()
+                            weekday_avg_df = daily_totals_by_dow.groupby('day_of_week')['gross'].mean()
+                            weekday_avg_non_ramadan = weekday_avg_df.to_dict()
+                            print(f"📊 April 2026 weekday averages for branch {branch_id} (from April 4-30, 2025 daily totals)")
+                    
+                    # Group by day to get actual daily totals
+                    daily_totals = branch_month_df.groupby(branch_month_df['business_date'].dt.day)['gross'].sum()
+                    
+                    for day_num, daily_gross in daily_totals.items():
+                        # Calculate estimated value for this day
+                        estimated_value = float(daily_gross)
+                        
+                        # Determine which weekday average to use based on month and day
+                        if month == 2:
+                            # February 2026
+                            date_2026 = pd.Timestamp(year=compare_year + 1, month=2, day=day_num)
+                            day_of_week_2026 = date_2026.day_name()
+                            
+                            if day_num <= 17:
+                                # Non-Ramadan days (Feb 1-17)
+                                estimated_value = float(weekday_avg_non_ramadan.get(day_of_week_2026, daily_gross))
+                            else:
+                                # Ramadan days (Feb 18-28)
+                                estimated_value = float(weekday_avg_ramadan.get(day_of_week_2026, daily_gross))
+                        
+                        elif month == 3:
+                            # March 2026
+                            date_2026 = pd.Timestamp(year=compare_year + 1, month=3, day=day_num)
+                            day_of_week_2026 = date_2026.day_name()
+                            
+                            if day_num <= 19:
+                                # Ramadan days (March 1-19)
+                                estimated_value = float(weekday_avg_ramadan.get(day_of_week_2026, daily_gross))
+                            elif day_num <= 23:
+                                # Eid days (March 20-23) - use actual 2025 Eid day values
+                                # March 20 → 1st Eid, March 21 → 2nd Eid, March 22 → 3rd Eid, March 23 → 4th Eid
+                                eid_day_number = day_num - 19  # 20→1, 21→2, 22→3, 23→4
+                                estimated_value = float(eid_2025_values.get(eid_day_number, daily_gross))
+                            else:
+                                # Non-Ramadan days (March 24-31)
+                                estimated_value = float(weekday_avg_non_ramadan.get(day_of_week_2026, daily_gross))
+                        
+                        elif month == 4 and weekday_avg_non_ramadan:
+                            # April 2026
+                            date_2026 = pd.Timestamp(year=compare_year + 1, month=4, day=day_num)
+                            day_of_week_2026 = date_2026.day_name()
+                            estimated_value = float(weekday_avg_non_ramadan.get(day_of_week_2026, daily_gross))
+                        
+                        daily_sales_data.append({
+                            'day': int(day_num),
+                            'actual': float(daily_gross),
+                            'estimated': estimated_value
+                        })
+                
+                # Add month data with daily breakdown
                 month_data = {
                     'month': month,
                     'sales_CY': float(row['sales_CY']) if not pd.isna(row['sales_CY']) else None,
@@ -478,7 +659,8 @@ def get_islamic_calendar_effects(
                     'est_sales_no_eid2': float(row['est_sales_no_eid2']) if not pd.isna(row['est_sales_no_eid2']) else None,
                     'ramadan_eid_pct': float(row['ramadan_eid_pct']) if not pd.isna(row['ramadan_eid_pct']) else None,
                     'muharram_pct': float(row['muharram_pct']) if not pd.isna(row['muharram_pct']) else None,
-                    'eid2_pct': float(row['eid2_pct']) if not pd.isna(row['eid2_pct']) else None
+                    'eid2_pct': float(row['eid2_pct']) if not pd.isna(row['eid2_pct']) else None,
+                    'daily_sales': daily_sales_data  # Add actual daily sales array
                 }
                 
                 brands_dict[brand_id]['branches'][branch_id]['months'].append(month_data)
