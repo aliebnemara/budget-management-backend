@@ -422,12 +422,20 @@ def get_islamic_calendar_effects(
         # DEBUG: Check Eid2 data after merge
         print("\n🔍 DEBUG: Eid2 data after merge:")
         print(f"Eid2 DataFrame shape: {eid2.shape}")
-        print(f"Eid2 columns: {eid2.columns.tolist()}")
+        print(f"Eid2 DataFrame dtypes: {eid2.dtypes.to_dict()}")
         print(f"Eid2 data:\n{eid2}")
+        print(f"\nFinal_df before merge - branch_ids: {final_df['branch_id'].unique()}, dtype: {final_df['branch_id'].dtype}")
+        print(f"Eid2 - branch_ids: {eid2['branch_id'].unique()}, dtype: {eid2['branch_id'].dtype}")
+        
         eid2_rows = final_df[final_df['Eid2 %'].notna()]
-        print(f"\nFinal_df rows with Eid2 data: {len(eid2_rows)}")
+        print(f"\nFinal_df rows with Eid2 data AFTER merge: {len(eid2_rows)}")
         if len(eid2_rows) > 0:
             print(eid2_rows[['branch_id', 'month', 'Eid2 %']])
+        else:
+            print("❌ No Eid2 data found in merged dataframe!")
+            sample = final_df[(final_df['branch_id'] == 189) & (final_df['month'] == 5)]
+            if len(sample) > 0:
+                print(f"Sample row for branch 189, month 5: {sample[['branch_id', 'month', 'Eid2 %']].to_dict('records')}")
         
         # Rename columns for clarity
         final_df = final_df.rename(columns={
