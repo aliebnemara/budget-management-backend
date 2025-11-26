@@ -711,15 +711,38 @@ def get_islamic_calendar_effects(
                     ].copy()
                     
                     if not branch_june_july_df.empty:
-                        # Calculate ONE weekday average from FULL MONTHS (June + July)
-                        # This is the complete Muharram-affected period analysis
+                        # Calculate TWO separate weekday averages (NON-MUHARRAM and MUHARRAM)
                         print(f"   📊 CY 2025: Processing FULL months - {len(branch_june_july_df)} total days")
                         
-                        # Calculate weekday averages from ALL days in June + July combined
+                        # Separate NON-MUHARRAM and MUHARRAM days
                         branch_june_july_df['day_of_week'] = branch_june_july_df['business_date'].dt.day_name()
-                        daily_totals = branch_june_july_df.groupby(['business_date', 'day_of_week'])['gross'].sum().reset_index()
-                        weekday_avg_full_month = daily_totals.groupby('day_of_week')['gross'].mean().to_dict()
-                        print(f"   🌙 Full month weekday averages: {weekday_avg_full_month}")
+                        
+                        # NON-MUHARRAM days (June 1-25 + July 26-31 in CY 2025)
+                        non_muharram_df = branch_june_july_df[
+                            ~branch_june_july_df['business_date'].between(muharram_start_CY, muharram_end_CY)
+                        ].copy()
+                        
+                        # MUHARRAM days (June 26 - July 25 in CY 2025)
+                        muharram_df = branch_june_july_df[
+                            branch_june_july_df['business_date'].between(muharram_start_CY, muharram_end_CY)
+                        ].copy()
+                        
+                        print(f"   🟢 Non-Muharram days: {len(non_muharram_df)}")
+                        print(f"   🟠 Muharram days: {len(muharram_df)}")
+                        
+                        # Calculate NON-MUHARRAM weekday averages
+                        weekday_avg_NON_MUHARRAM = {}
+                        if not non_muharram_df.empty:
+                            daily_totals_non = non_muharram_df.groupby(['business_date', 'day_of_week'])['gross'].sum().reset_index()
+                            weekday_avg_NON_MUHARRAM = daily_totals_non.groupby('day_of_week')['gross'].mean().to_dict()
+                            print(f"   🌙 NON-MUHARRAM weekday averages: {weekday_avg_NON_MUHARRAM}")
+                        
+                        # Calculate MUHARRAM weekday averages
+                        weekday_avg_MUHARRAM = {}
+                        if not muharram_df.empty:
+                            daily_totals_muh = muharram_df.groupby(['business_date', 'day_of_week'])['gross'].sum().reset_index()
+                            weekday_avg_MUHARRAM = daily_totals_muh.groupby('day_of_week')['gross'].mean().to_dict()
+                            print(f"   🌙 MUHARRAM weekday averages: {weekday_avg_MUHARRAM}")
                     
                     # Now process each month (June and July) for display
                     for muharram_month in [6, 7]:
@@ -740,9 +763,16 @@ def get_islamic_calendar_effects(
                                 date_obj_by = pd.Timestamp(year=compare_year + 1, month=muharram_month, day=day_num)
                                 day_of_week_by = date_obj_by.day_name()
                                 
-                                # Apply FULL MONTH weekday average to ALL BY 2026 days
-                                # Use the same weekday average for entire July 2026 (no distinction between Muharram/Non-Muharram)
-                                estimated_value = weekday_avg_full_month.get(day_of_week_by, float(daily_gross_cy))
+                                # Determine if BY 2026 day falls within Muharram period
+                                is_muharram_day_by = (muharram_start_BY <= date_obj_by <= muharram_end_BY)
+                                
+                                # Use appropriate weekday average based on Muharram period
+                                if is_muharram_day_by:
+                                    # Use MUHARRAM weekday average
+                                    estimated_value = weekday_avg_MUHARRAM.get(day_of_week_by, float(daily_gross_cy))
+                                else:
+                                    # Use NON-MUHARRAM weekday average
+                                    estimated_value = weekday_avg_NON_MUHARRAM.get(day_of_week_by, float(daily_gross_cy))
                                 
                                 daily_sales_data.append({
                                     'day': int(day_num),
