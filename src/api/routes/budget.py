@@ -616,19 +616,91 @@ def get_islamic_calendar_effects(
                     # Group by day to get actual daily totals
                     daily_totals = branch_month_df.groupby(branch_month_df['business_date'].dt.day)['gross'].sum()
                     
+                    # 🐑 INITIALIZE EID AL-ADHA (EID2) CACHE for this branch (one-time)
+                    if 'eid2_cache' not in locals():
+                        eid2_cache = {}
+                        cy_eid_start = pd.to_datetime(eid2_CY)
+                        cy_eid_dates = pd.date_range(start=cy_eid_start, periods=3, freq='D')
+                        
+                        for i, cy_eid_date in enumerate(cy_eid_dates):
+                            eid_day_num = i + 1
+                            eid_df = df[
+                                (df['branch_id'] == branch_id) & 
+                                (df['business_date'].dt.year == cy_eid_date.year) &
+                                (df['business_date'].dt.month == cy_eid_date.month) &
+                                (df['business_date'].dt.day == cy_eid_date.day)
+                            ]
+                            if not eid_df.empty:
+                                eid2_cache[eid_day_num] = float(eid_df['gross'].sum())
+                                print(f"🐑 Cached CY Eid2 Day {eid_day_num} ({cy_eid_date.date()}): {eid2_cache[eid_day_num]:.2f} BHD - branch {branch_id}")
+                    
+                    # Precompute BY Eid dates for quick lookup
+                    by_eid_start = pd.to_datetime(eid2_BY)
+                    by_eid_dates = pd.date_range(start=by_eid_start, periods=3, freq='D')
+                    
+                    # 🐑 CALCULATE EID2 WEEKDAY AVERAGES for non-Eid days
+                    # Check if this month is affected by Eid2 (either CY or BY has Eid in this month)
+                    cy_eid_months = sorted(list(set([d.month for d in cy_eid_dates])))
+                    by_eid_months = sorted(list(set([d.month for d in by_eid_dates])))
+                    is_eid2_affected_month = month in cy_eid_months or month in by_eid_months
+                    
+                    eid2_weekday_avg = {}
+                    if is_eid2_affected_month:
+                        # Get CY month data and exclude CY Eid days
+                        cy_month_data_for_avg = df[
+                            (df['branch_id'] == branch_id) & 
+                            (df['business_date'].dt.year == compare_year) &
+                            (df['business_date'].dt.month == month)
+                        ].copy()
+                        
+                        # Exclude CY Eid days from this month
+                        cy_eid_days_this_month = [d for d in cy_eid_dates if d.month == month]
+                        cy_non_eid_data = cy_month_data_for_avg[~cy_month_data_for_avg['business_date'].isin(cy_eid_days_this_month)]
+                        
+                        if not cy_non_eid_data.empty:
+                            # CRITICAL FIX: First aggregate by day to get DAILY totals, then calculate weekday averages
+                            # Group by business_date to get daily totals first
+                            cy_daily_totals = cy_non_eid_data.groupby('business_date')['gross'].sum().reset_index()
+                            cy_daily_totals['day_of_week'] = cy_daily_totals['business_date'].dt.day_name()
+                            
+                            # Now calculate weekday averages from daily totals
+                            eid2_weekday_avg = cy_daily_totals.groupby('day_of_week')['gross'].mean().to_dict()
+                            print(f"🐑 Eid2 weekday averages for month {month} calculated from {len(cy_daily_totals)} non-Eid days")
+                            print(f"   Sample averages: {list(eid2_weekday_avg.items())[:3]}")
+                    
                     # 🟠 CHECK: Is this a Muharram-affected month?
                     is_muharram_month = month in muh_metadata['affected_months_BY']
                     
                     for day_num, daily_gross in daily_totals.items():
                         estimated_value = float(daily_gross)  # Default fallback
                         
+                        # Determine BY date for this day
+                        date_BY = pd.Timestamp(year=budget_year, month=month, day=day_num)
+                        
+                        # 🐑 HIGHEST PRIORITY: Eid al-Adha (Eid2) direct copy
+                        if date_BY in by_eid_dates:
+                            # This is a BY Eid day - copy from CY Eid
+                            by_eid_day_num = (date_BY - by_eid_start).days + 1
+                            if by_eid_day_num in eid2_cache:
+                                estimated_value = float(eid2_cache[by_eid_day_num])
+                                print(f"   🐑 BY Eid2 Day {by_eid_day_num} ({date_BY.date()}): Copied {estimated_value:.2f} BHD")
+                        
+                        # 🐑 SECOND PRIORITY: Use Eid2 weekday averages for non-Eid days in affected months
+                        elif is_eid2_affected_month and eid2_weekday_avg:
+                            # This is a non-Eid day in an Eid2-affected month
+                            day_of_week_BY = date_BY.day_name()
+                            if day_of_week_BY in eid2_weekday_avg:
+                                estimated_value = float(eid2_weekday_avg[day_of_week_BY])
+                                print(f"   🐑 BY Non-Eid Day {day_num} ({date_BY.date()}, {day_of_week_BY}): Using weekday avg {estimated_value:.2f} BHD")
+                            else:
+                                estimated_value = float(daily_gross)  # Fallback to CY actual
+                        
                         # 🟠 PRIORITY: Use Muharram TWO separate weekday averages for affected months
-                        if is_muharram_month and branch_id in muh_metadata['branch_weekday_averages']:
+                        elif is_muharram_month and branch_id in muh_metadata['branch_weekday_averages']:
                             # Get Muharram weekday averages for this branch
                             branch_avg = muh_metadata['branch_weekday_averages'][branch_id]
                             
                             # Determine day of week for BY date
-                            date_BY = pd.Timestamp(year=budget_year, month=month, day=day_num)
                             day_of_week_BY = date_BY.day_name()
                             
                             # Determine if this day falls within Muharram period in BY 2026
@@ -644,8 +716,8 @@ def get_islamic_calendar_effects(
                                 # Use NON-MUHARRAM weekday average
                                 estimated_value = float(branch_avg['NON_MUHARRAM'].get(day_of_week_BY, daily_gross))
                         
-                        # 🧠 FALLBACK: Use Ramadan Smart System for non-Muharram months
-                        elif month in estimation_plan and day_num in estimation_plan[month]:
+                        # 🧠 FALLBACK: Use Ramadan Smart System for non-Muharram, non-Eid2 months
+                        if estimated_value == float(daily_gross) and month in estimation_plan and day_num in estimation_plan[month]:
                             ref = estimation_plan[month][day_num]
                             
                             # Determine day of week for BY date (for weekday averaging)
