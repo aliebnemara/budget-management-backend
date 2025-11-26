@@ -233,7 +233,7 @@ May 2026 (31 days):
 │   Subtotal: 11,000 BHD
 │
 └─ Non-Eid Days: May 1-29 (29 days)
-    Apply CY JUNE non-Eid weekday averages
+    Apply CY MAY non-Eid weekday averages
     Subtotal: 87,000 BHD (estimated)
 
 June 2026 (30 days):
@@ -242,14 +242,16 @@ June 2026 (30 days):
 │   Subtotal: 4,500 BHD
 │
 └─ Non-Eid Days: June 2-30 (29 days)
-    Apply CY JULY non-Eid weekday averages
+    Apply CY JUNE non-Eid weekday averages
     Subtotal: 87,000 BHD (estimated)
 ```
 
 **Critical Rule for Case B**:
-- **CY June non-Eid averages** → Apply to **BY May non-Eid days**
-- **CY July non-Eid averages** → Apply to **BY June non-Eid days**
-- Each month uses the corresponding CY month's non-Eid pattern
+- **Each BY month uses its SAME month's CY non-Eid averages**
+- **BY May non-Eid days** → Apply **CY May non-Eid averages** (minimum 26 days available)
+- **BY June non-Eid days** → Apply **CY June non-Eid averages** (minimum 26 days available)
+- **BY July non-Eid days** → Apply **CY July non-Eid averages** (minimum 26 days available)
+- Each month has sufficient non-Eid days (minimum 26) to calculate reliable weekday averages
 
 ---
 
@@ -377,6 +379,45 @@ BY May 2026:
 
 Impact: (104,500 - 102,500) / 102,500 × 100 = +1.95%
 ```
+
+---
+
+### 4.7 CRITICAL RULE: Same Month Weekday Averages
+
+**Each BY month ALWAYS uses its corresponding SAME month's CY non-Eid weekday averages.**
+
+```
+BY January → CY January non-Eid averages
+BY February → CY February non-Eid averages
+BY March → CY March non-Eid averages
+...
+BY December → CY December non-Eid averages
+```
+
+**Why This Works**:
+- Each month has a minimum of **26 non-Eid days** (30-day month with 3 Eid days + 1 day buffer)
+- 26 days is MORE than sufficient to calculate reliable weekday averages
+- Each weekday will have 3-4 occurrences in the non-Eid days
+- NO need to borrow averages from other months
+
+**Example**:
+```
+June has 30 days total
+- If 3 Eid days: 27 non-Eid days available ✓
+- If Eid spans months (2 days): 28 non-Eid days available ✓
+- Always enough data for reliable weekday averages
+
+Weekday distribution in 27 non-Eid days:
+- Monday: ~4 occurrences
+- Tuesday: ~4 occurrences
+- Wednesday: ~4 occurrences
+- Thursday: ~4 occurrences
+- Friday: ~3 occurrences
+- Saturday: ~3 occurrences
+- Sunday: ~3 occurrences
+```
+
+**NEVER cross-apply averages between months** - each month has its own seasonal/operational patterns.
 
 ---
 
@@ -684,7 +725,7 @@ Total: 94,500 BHD
   - Subtotal: 11,000 BHD
 
 - Non-Eid Days: May 1-29 (29 days)
-  - Apply CY JUNE weekday averages
+  - Apply CY MAY weekday averages (29 non-Eid days available)
   - Subtotal: 87,500 BHD
 
 Total: 98,500 BHD
@@ -697,7 +738,7 @@ Total: 98,500 BHD
   - Subtotal: 4,500 BHD
 
 - Non-Eid Days: June 2-30 (29 days)
-  - Apply CY JULY weekday averages
+  - Apply CY JUNE weekday averages (28 non-Eid days available in CY June)
   - Subtotal: 87,000 BHD
 
 Total: 91,500 BHD
