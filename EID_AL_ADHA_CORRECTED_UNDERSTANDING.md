@@ -198,3 +198,58 @@ Impact: -3.33%
 ## 📝 READY FOR YOUR CONFIRMATION
 
 Please confirm if my CORRECTED understanding is now accurate, and then tell me what needs to be implemented or fixed! 🎯
+
+---
+
+## 🔴 CRITICAL CORRECTION - Eid Day Copying Logic
+
+### ❌ WRONG Understanding:
+I said: "Eid days use EXACT sales copy by **weekday matching**"
+- Example: CY June 6 (Friday) → BY May 29 (Friday) - match by weekday
+
+### ✅ CORRECT Understanding:
+Eid days copy by **EID DAY NUMBER**, NOT by weekday!
+
+**The 3 Eid days are**:
+- **Eid Day 1** (first day of Eid)
+- **Eid Day 2** (second day of Eid)  
+- **Eid Day 3** (third day of Eid)
+
+**Copying Logic**:
+```
+CY 2025:
+- June 6 (Friday) = Eid Day 1: 5,000 BHD
+- June 7 (Saturday) = Eid Day 2: 6,000 BHD
+- June 8 (Sunday) = Eid Day 3: 4,500 BHD
+
+BY 2026:
+- May 27 (Wednesday) = Eid Day 1 → Copy 5,000 BHD (from CY Eid Day 1)
+- May 28 (Thursday) = Eid Day 2 → Copy 6,000 BHD (from CY Eid Day 2)
+- May 29 (Friday) = Eid Day 3 → Copy 4,500 BHD (from CY Eid Day 3)
+```
+
+**Key Point**: 
+- Eid Day 1 → Eid Day 1 (regardless of weekday change)
+- Eid Day 2 → Eid Day 2 (regardless of weekday change)
+- Eid Day 3 → Eid Day 3 (regardless of weekday change)
+
+**Why This Makes Sense**:
+- Eid Day 1 is always the main Eid celebration day (highest sales typically)
+- Eid Day 2 and Day 3 are continuation days with their own patterns
+- The **cultural pattern of Eid celebration** is what matters, not the weekday
+- Eid Day 1 sales should go to Eid Day 1, even if weekday changes from Friday to Wednesday
+
+### Updated Principle 1:
+**1. EXACT Eid Day Sales Copy by Eid Day Number** 🎯
+- Copy **Eid Day 1 → Eid Day 1** (exact sales value)
+- Copy **Eid Day 2 → Eid Day 2** (exact sales value)
+- Copy **Eid Day 3 → Eid Day 3** (exact sales value)
+- **NO weekday matching** - match by Eid day position instead
+- **NO averaging** - direct exact copy of the sales value
+
+This is DIFFERENT from Muharram/Ramadan which DO use weekday matching because those are longer periods where weekday patterns matter more than specific holiday day numbers.
+
+---
+
+**Date Updated**: 2025-11-26
+**Status**: Waiting for user confirmation before implementation
