@@ -410,13 +410,14 @@ def get_islamic_calendar_effects(
         summarydf = descriptiveCalculations(compare_year, df)
         
         # Merge calculations
-        # CRITICAL: Include 'est' from service layer for correct expected sales values
-        final_df = ramadan[['branch_id', 'month', 'Ramadan Eid %', 'est']].copy()
+        # CRITICAL: Start with summarydf (all 12 months) to ensure all months are included
+        # Previously started with ramadan which only had Ramadan-affected months
+        final_df = summarydf[['branch_id', 'month', 'total_sales']].copy()
+        final_df = pd.merge(final_df, ramadan[['branch_id', 'month', 'Ramadan Eid %', 'est']],
+                            on=['branch_id', 'month'], how='left')
         final_df = pd.merge(final_df, muh[['branch_id', 'month', 'Muharram %']],
                             on=['branch_id', 'month'], how='left')
         final_df = pd.merge(final_df, eid2[['branch_id', 'month', 'Eid2 %']],
-                            on=['branch_id', 'month'], how='left')
-        final_df = pd.merge(final_df, summarydf[['branch_id', 'month', 'total_sales']],
                             on=['branch_id', 'month'], how='left')
         
         # DEBUG: Check Eid2 data after merge
