@@ -425,7 +425,15 @@ def get_islamic_calendar_effects(
         print(f"Eid2 DataFrame dtypes: {eid2.dtypes.to_dict()}")
         print(f"Eid2 data:\n{eid2}")
         print(f"\nFinal_df before merge - branch_ids: {final_df['branch_id'].unique()}, dtype: {final_df['branch_id'].dtype}")
+        print(f"Final_df before merge - months: {sorted(final_df['month'].unique())}, dtype: {final_df['month'].dtype}")
         print(f"Eid2 - branch_ids: {eid2['branch_id'].unique()}, dtype: {eid2['branch_id'].dtype}")
+        print(f"Eid2 - months: {sorted(eid2['month'].unique())}, dtype: {eid2['month'].dtype}")
+        
+        # Check if months 5 and 6 exist in final_df
+        month5 = final_df[(final_df['branch_id'] == 189) & (final_df['month'] == 5)]
+        month6 = final_df[(final_df['branch_id'] == 189) & (final_df['month'] == 6)]
+        print(f"\nFinal_df has month 5 for branch 189: {len(month5) > 0}")
+        print(f"Final_df has month 6 for branch 189: {len(month6) > 0}")
         
         eid2_rows = final_df[final_df['Eid2 %'].notna()]
         print(f"\nFinal_df rows with Eid2 data AFTER merge: {len(eid2_rows)}")
