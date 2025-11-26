@@ -419,6 +419,16 @@ def get_islamic_calendar_effects(
         final_df = pd.merge(final_df, summarydf[['branch_id', 'month', 'total_sales']],
                             on=['branch_id', 'month'], how='left')
         
+        # DEBUG: Check Eid2 data after merge
+        print("\n🔍 DEBUG: Eid2 data after merge:")
+        print(f"Eid2 DataFrame shape: {eid2.shape}")
+        print(f"Eid2 columns: {eid2.columns.tolist()}")
+        print(f"Eid2 data:\n{eid2}")
+        eid2_rows = final_df[final_df['Eid2 %'].notna()]
+        print(f"\nFinal_df rows with Eid2 data: {len(eid2_rows)}")
+        if len(eid2_rows) > 0:
+            print(eid2_rows[['branch_id', 'month', 'Eid2 %']])
+        
         # Rename columns for clarity
         final_df = final_df.rename(columns={
             'Ramadan Eid %': 'ramadan_eid_pct',
