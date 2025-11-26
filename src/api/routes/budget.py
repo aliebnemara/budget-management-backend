@@ -320,6 +320,7 @@ def get_islamic_calendar_effects(
             Ramadan_Eid_Calculations,
             Muharram_calculations,
             Eid2Calculations,
+            Eid2Calculations_v2,
             descriptiveCalculations
         )
         
@@ -402,7 +403,8 @@ def get_islamic_calendar_effects(
         muh = muh_result['monthly_summary']
         muh_metadata = muh_result['metadata']
         
-        eid2 = Eid2Calculations(compare_year, eid2_CY, eid2_BY, df)
+        # Use corrected Eid2Calculations_v2 function
+        eid2 = Eid2Calculations_v2(compare_year, eid2_CY, eid2_BY, df)
         
         # Get descriptive statistics (actual sales)
         summarydf = descriptiveCalculations(compare_year, df)

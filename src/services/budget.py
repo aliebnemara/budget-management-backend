@@ -867,6 +867,184 @@ def Eid2Calculations(compare_year, eid2_CY, eid2_BY, df):
         raise
 
 
+def Eid2Calculations_v2(compare_year, eid2_CY, eid2_BY, df):
+    """
+    Calculate Eid Al-Adha impact based on month shift - CORRECTED VERSION.
+    
+    Key Principles:
+    1. If Eid falls in SAME month in both years → NO calculation, return 0% impact
+    2. Eid days copy by DAY NUMBER (Day 1→Day 1, Day 2→Day 2, Day 3→Day 3), NOT weekday
+    3. Each BY month uses SAME month's CY non-Eid weekday averages (not cross-month)
+    
+    Args:
+        compare_year (int): Compare year (e.g., 2025)
+        eid2_CY (datetime): CY Eid start date
+        eid2_BY (datetime): BY Eid start date
+        df (DataFrame): Historical sales data
+    
+    Returns:
+        DataFrame with columns: branch_id, month, actual, est, Eid2 %
+    """
+    try:
+        print(f"\n🟢 EID AL-ADHA CALCULATION START (v2 - Corrected)")
+        print(f"   CY {compare_year} Eid: {eid2_CY}")
+        print(f"   BY {compare_year + 1} Eid: {eid2_BY}")
+        
+        # Step 1: Calculate Eid date ranges (always 3 days)
+        cy_eid_start = pd.to_datetime(eid2_CY)
+        cy_eid_end = cy_eid_start + timedelta(days=2)  # 3 days total (0, 1, 2)
+        by_eid_start = pd.to_datetime(eid2_BY)
+        by_eid_end = by_eid_start + timedelta(days=2)
+        
+        print(f"   CY Eid Days: {cy_eid_start.strftime('%Y-%m-%d')} to {cy_eid_end.strftime('%Y-%m-%d')}")
+        print(f"   BY Eid Days: {by_eid_start.strftime('%Y-%m-%d')} to {by_eid_end.strftime('%Y-%m-%d')}")
+        
+        # Step 2: Identify affected months
+        cy_affected_months = sorted(list(set([cy_eid_start.month, cy_eid_end.month])))
+        by_affected_months = sorted(list(set([by_eid_start.month, by_eid_end.month])))
+        
+        print(f"   CY Affected Months: {cy_affected_months}")
+        print(f"   BY Affected Months: {by_affected_months}")
+        
+        # Step 3: Check if same month (CRITICAL CHECK)
+        if cy_affected_months == by_affected_months:
+            print(f"   ⚠️  SAME MONTH DETECTED - No calculation needed (Impact = 0%)")
+            # Return 0% impact for affected months
+            final_df = pd.DataFrame()
+            for branch_id in df["branch_id"].unique():
+                for month in cy_affected_months:
+                    final_df = pd.concat([final_df, pd.DataFrame([{
+                        'branch_id': branch_id,
+                        'month': month,
+                        'actual': 0,
+                        'est': 0,
+                        'Eid2 %': 0.0
+                    }])], ignore_index=True)
+            return final_df
+        
+        print(f"   ✅ DIFFERENT MONTHS - Proceeding with calculation")
+        
+        # Step 4: Prepare data
+        agg_funcs = {'gross': 'sum', 'day_of_week': 'first'}
+        df = df.groupby(['branch_id', 'business_date']).agg(agg_funcs).reset_index()
+        df = df[df["business_date"].dt.year <= compare_year]
+        df['day_of_week'] = df['business_date'].dt.day_name()
+        
+        final_df = pd.DataFrame()
+        
+        # Step 5: Process each branch
+        for branch_id in df["branch_id"].unique():
+            print(f"\n   📊 Processing Branch {branch_id}")
+            branch_df = df[df["branch_id"] == branch_id].copy()
+            
+            # Create Eid day lists (Day 1, Day 2, Day 3)
+            cy_eid_dates = pd.date_range(start=cy_eid_start, end=cy_eid_end, freq='D')
+            by_eid_dates = pd.date_range(start=by_eid_start, end=by_eid_end, freq='D')
+            
+            # Step 6: Get CY Eid day sales (by day number, not weekday)
+            cy_eid_sales = {}
+            for i, eid_date in enumerate(cy_eid_dates):
+                eid_day_num = i + 1  # Day 1, Day 2, Day 3
+                eid_data = branch_df[branch_df['business_date'] == eid_date]
+                if not eid_data.empty:
+                    cy_eid_sales[eid_day_num] = float(eid_data['gross'].sum())
+                    print(f"      CY Eid Day {eid_day_num} ({eid_date.date()}): {cy_eid_sales[eid_day_num]:,.2f} BHD")
+                else:
+                    cy_eid_sales[eid_day_num] = 0.0
+                    print(f"      CY Eid Day {eid_day_num} ({eid_date.date()}): NO DATA")
+            
+            # Step 7: Process each affected month in CY and BY
+            all_affected_months = sorted(list(set(cy_affected_months + by_affected_months)))
+            
+            for month in all_affected_months:
+                print(f"\n      Month {month}:")
+                
+                # Get CY month data
+                cy_month_data = branch_df[
+                    (branch_df['business_date'].dt.year == compare_year) &
+                    (branch_df['business_date'].dt.month == month)
+                ].copy()
+                
+                if cy_month_data.empty:
+                    print(f"         ⚠️  No CY data for month {month}")
+                    continue
+                
+                # Identify Eid and non-Eid days in CY month
+                cy_eid_days_in_month = [d for d in cy_eid_dates if d.month == month]
+                cy_non_eid_data = cy_month_data[~cy_month_data['business_date'].isin(cy_eid_days_in_month)]
+                
+                cy_eid_count = len(cy_eid_days_in_month)
+                cy_non_eid_count = len(cy_non_eid_data)
+                
+                print(f"         CY: {cy_eid_count} Eid days, {cy_non_eid_count} non-Eid days")
+                
+                # Calculate CY non-Eid weekday averages for THIS month
+                if not cy_non_eid_data.empty:
+                    cy_weekday_avg = cy_non_eid_data.groupby('day_of_week')['gross'].mean().to_dict()
+                    print(f"         CY non-Eid weekday averages calculated from {cy_non_eid_count} days")
+                else:
+                    cy_weekday_avg = {}
+                    print(f"         ⚠️  No non-Eid days in CY month {month}")
+                
+                # Calculate CY month total (actual)
+                cy_month_total = float(cy_month_data['gross'].sum())
+                
+                # Estimate BY month total
+                import calendar
+                days_in_by_month = calendar.monthrange(compare_year + 1, month)[1]
+                by_month_estimated = 0.0
+                
+                # Identify Eid days in BY month
+                by_eid_days_in_month = [d for d in by_eid_dates if d.month == month]
+                by_eid_count = len(by_eid_days_in_month)
+                by_non_eid_count = days_in_by_month - by_eid_count
+                
+                print(f"         BY: {by_eid_count} Eid days, {by_non_eid_count} non-Eid days")
+                
+                # Copy Eid day sales by DAY NUMBER
+                for by_eid_date in by_eid_days_in_month:
+                    # Find which Eid day number this is (1, 2, or 3)
+                    eid_day_num = (by_eid_date - by_eid_start).days + 1
+                    if eid_day_num in cy_eid_sales:
+                        by_month_estimated += cy_eid_sales[eid_day_num]
+                        print(f"         BY Eid Day {eid_day_num} ({by_eid_date.date()}): {cy_eid_sales[eid_day_num]:,.2f} BHD (copied)")
+                
+                # Estimate non-Eid days using SAME month's CY weekday averages
+                for day in range(1, days_in_by_month + 1):
+                    by_date = pd.Timestamp(year=compare_year + 1, month=month, day=day)
+                    if by_date not in by_eid_days_in_month:
+                        weekday = by_date.day_name()
+                        if weekday in cy_weekday_avg:
+                            by_month_estimated += cy_weekday_avg[weekday]
+                
+                print(f"         CY Total: {cy_month_total:,.2f} BHD")
+                print(f"         BY Estimated: {by_month_estimated:,.2f} BHD")
+                
+                # Calculate impact
+                if cy_month_total > 0:
+                    impact_pct = round(((by_month_estimated - cy_month_total) / cy_month_total) * 100, 2)
+                else:
+                    impact_pct = 0.0 if by_month_estimated == 0 else float('inf')
+                
+                print(f"         Impact: {impact_pct}%")
+                
+                # Add to results
+                final_df = pd.concat([final_df, pd.DataFrame([{
+                    'branch_id': branch_id,
+                    'month': month,
+                    'actual': cy_month_total,
+                    'est': by_month_estimated,
+                    'Eid2 %': impact_pct
+                }])], ignore_index=True)
+        
+        print(f"\n✅ Eid Al-Adha calculation completed (v2)")
+        return final_df
+        
+    except Exception as e:
+        print(f"❌ Error in Eid2Calculations_v2: {e}")
+        raise
+
+
 def Muharram_calculations(compare_year, muharram_CY, muharram_BY, muharram_daycount_CY, muharram_daycount_BY, df):
     """
     Calculate Muharram impact using TWO separate weekday averages:
