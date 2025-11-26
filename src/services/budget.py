@@ -868,154 +868,156 @@ def Eid2Calculations(compare_year, eid2_CY, eid2_BY, df):
 
 
 def Muharram_calculations(compare_year, muharram_CY, muharram_BY, muharram_daycount_CY, muharram_daycount_BY, df):
+    """
+    Calculate Muharram impact using TWO separate weekday averages:
+    1. NON-MUHARRAM average: From normal days (June 1-25 + July 26-31 for CY 2025)
+    2. MUHARRAM average: From Muharram period (June 26 - July 25 for CY 2025)
+    
+    For BY 2026 estimation:
+    - Days within Muharram period: Use MUHARRAM weekday average
+    - Days outside Muharram period: Use NON-MUHARRAM weekday average
+    """
     try:
-        previous_year = compare_year - 1
-        dates_df = pd.DataFrame()
-        dates_df["date"] = pd.date_range(start=str(previous_year) + "-01-01",
-                                         end=str(compare_year + 1) + "-12-31", freq="d")
-        muharram_lengths = {
-            compare_year: muharram_daycount_CY,
-            compare_year + 1: muharram_daycount_BY
-        }
-        muharram_start_dates = {
-            compare_year: muharram_CY,
-            compare_year + 1: muharram_BY
-        }
-        muharram_periods = {
-            year: (start, start + timedelta(days=muharram_lengths[year] - 1))
-            for year, start in muharram_start_dates.items()
-        }
-
-        def assign_muharram_flag(date):
-            year = date.year
-            if year in muharram_periods:
-                muharram_start, muharram_end = muharram_periods[year]
-                _, muharram_end_c = muharram_periods[compare_year]
-                if muharram_start <= date <= muharram_end:
-                    return 1
-                elif date.month == muharram_start.month or date.month == muharram_end.month:
-                    return 3
-                elif date.month == muharram_end_c.month and year == compare_year + 1:
-                    return 3
-            return 0
-
-        dates_df["muharram"] = dates_df["date"].apply(assign_muharram_flag)
-
-        ramadan_lookup_CY = dict(zip(dates_df["date"], dates_df["muharram"]))
-        dates_BY = dates_df[dates_df["date"].dt.year ==
-                            compare_year + 1].copy()
-        ramadan_lookup_BY = dict(zip(dates_BY["date"], dates_BY["muharram"]))
-
-        def safe_replace_year(date, new_year):
-            try:
-                if date.year == compare_year:
-                    return date.replace(year=new_year)
-                else:
-                    return date
-            except ValueError:
-                if date.month == 2 and date.day == 29:
-                    return date.replace(year=new_year, day=28)
-                else:
-                    raise
-
+        print(f"\n🟠 MUHARRAM CALCULATION START")
+        print(f"   CY {compare_year} Muharram: {muharram_CY} ({muharram_daycount_CY} days)")
+        print(f"   BY {compare_year + 1} Muharram: {muharram_BY} ({muharram_daycount_BY} days)")
+        
+        # Calculate Muharram date ranges
+        muharram_start_CY = pd.to_datetime(muharram_CY)
+        muharram_end_CY = muharram_start_CY + timedelta(days=muharram_daycount_CY - 1)
+        muharram_start_BY = pd.to_datetime(muharram_BY)
+        muharram_end_BY = muharram_start_BY + timedelta(days=muharram_daycount_BY - 1)
+        
+        print(f"   CY Date Range: {muharram_start_CY.date()} to {muharram_end_CY.date()}")
+        print(f"   BY Date Range: {muharram_start_BY.date()} to {muharram_end_BY.date()}")
+        
+        # Identify affected months for CY
+        affected_months_CY = sorted(list(set([muharram_start_CY.month, muharram_end_CY.month])))
+        affected_months_BY = sorted(list(set([muharram_start_BY.month, muharram_end_BY.month])))
+        
+        print(f"   Affected months CY: {affected_months_CY}")
+        print(f"   Affected months BY: {affected_months_BY}")
+        
+        # Prepare dataframe
         agg_funcs = {'gross': 'sum', 'day_of_week': 'first'}
-        df = df.groupby(['branch_id', 'business_date']
-                        ).agg(agg_funcs).reset_index()
-        # FIX: Include data up to and including compare_year (2025), not just < 2026
+        df = df.groupby(['branch_id', 'business_date']).agg(agg_funcs).reset_index()
         df = df[df["business_date"].dt.year <= compare_year]
-
-        df["muharram_CY"] = df["business_date"].map(ramadan_lookup_CY)
-        df["business_date_BY"] = df["business_date"].apply(
-            lambda d: safe_replace_year(d, compare_year + 1))
-        df["muharram_BY"] = df["business_date_BY"].map(ramadan_lookup_BY)
-        df["day_of_week_BY"] = df["business_date_BY"].dt.day_name()
-
-        orders_df = df
-        orders_df["year_CY"] = orders_df["business_date"].dt.year
-        orders_df["month_CY"] = orders_df["business_date"].dt.month
-        orders_df["year_BY"] = orders_df["business_date_BY"].dt.year
-        orders_df["month_BY"] = orders_df["business_date_BY"].dt.month
-        orders_df = orders_df[[
-            "branch_id", "business_date", "year_CY", "month_CY", "day_of_week",
-            "business_date_BY", "year_BY", "month_BY", "day_of_week_BY",
-            "gross", "muharram_CY", "muharram_BY"
-        ]]
-
+        df['day_of_week'] = df['business_date'].dt.day_name()
+        
         final_df = pd.DataFrame()
-        for branch in orders_df["branch_id"].unique():
-            branch_sales = orders_df[orders_df["branch_id"] == branch].copy()
-            branch_sales["gross_BY"] = 0
-            day_sales_muharram = branch_sales[branch_sales["muharram_CY"] == 1].groupby(
-                "day_of_week")["gross"].mean().reset_index()
-            for _, v in day_sales_muharram.iterrows():
-                branch_sales.loc[(branch_sales["muharram_BY"] == 1) & (
-                    branch_sales["day_of_week_BY"] == v["day_of_week"]), "gross_BY"] = v["gross"]
-
-            ramadan_month_BY = branch_sales.loc[branch_sales["muharram_BY"] == 3, "month_BY"].unique(
-            )
-            for mon in ramadan_month_BY:
-                partial_cy_rows = branch_sales[
-                    (branch_sales["muharram_CY"].isin([1, 2])) &
-                    (branch_sales["month_CY"] == mon) &
-                    (branch_sales["year_CY"] == compare_year)
-                ]
-                if len(partial_cy_rows) > 0:
-                    temp_month = mon - 1
-                    temp_year = compare_year
-                    while True:
-                        if temp_month <= 0:
-                            temp_month = 12
-                            temp_year = compare_year - 1
-                        if len(branch_sales[
-                            (branch_sales["muharram_CY"].isin([1, 2])) &
-                            (branch_sales["month_CY"] == temp_month) &
-                            (branch_sales["year_CY"] == temp_year)
-                        ]) == 0:
-                            day_sales_non_muharram = branch_sales[
-                                (branch_sales["month_CY"] == temp_month) &
-                                (branch_sales["year_CY"] == temp_year)
-                            ].groupby("day_of_week")["gross"].mean().reset_index()
-                            for _, v in day_sales_non_muharram.iterrows():
-                                branch_sales.loc[
-                                    (branch_sales["muharram_BY"] == 3) &
-                                    (branch_sales["month_BY"] == mon) &
-                                    (branch_sales["day_of_week_BY"]
-                                     == v["day_of_week"]),
-                                    "gross_BY"
-                                ] = v["gross"]
-                            break
-                        else:
-                            temp_month -= 1
+        
+        for branch_id in df["branch_id"].unique():
+            print(f"\n   📊 Processing Branch {branch_id}")
+            branch_df = df[df["branch_id"] == branch_id].copy()
+            
+            # ===== STEP 1: Get June + July CY data =====
+            branch_june_july_df = branch_df[
+                (branch_df['business_date'].dt.year == compare_year) &
+                (branch_df['business_date'].dt.month.isin(affected_months_CY))
+            ].copy()
+            
+            if branch_june_july_df.empty:
+                print(f"      ⚠️  No data for affected months {affected_months_CY}")
+                continue
+            
+            print(f"      Total days in affected months: {len(branch_june_july_df)}")
+            
+            # ===== STEP 2: Separate NON-MUHARRAM and MUHARRAM days =====
+            
+            # 🟢 NON-MUHARRAM DAYS (June 1-25 + July 26-31)
+            non_muharram_df = branch_june_july_df[
+                ~branch_june_july_df['business_date'].between(muharram_start_CY, muharram_end_CY)
+            ].copy()
+            
+            # 🟠 MUHARRAM DAYS (June 26 - July 25)
+            muharram_df = branch_june_july_df[
+                branch_june_july_df['business_date'].between(muharram_start_CY, muharram_end_CY)
+            ].copy()
+            
+            print(f"      🟢 Non-Muharram days: {len(non_muharram_df)}")
+            print(f"      🟠 Muharram days: {len(muharram_df)}")
+            
+            # ===== STEP 3: Calculate TWO weekday averages =====
+            
+            # Calculate NON-MUHARRAM weekday averages
+            weekday_avg_NON_MUHARRAM = {}
+            if not non_muharram_df.empty:
+                daily_totals_non_muharram = non_muharram_df.groupby(
+                    ['business_date', 'day_of_week']
+                )['gross'].sum().reset_index()
+                weekday_avg_NON_MUHARRAM = daily_totals_non_muharram.groupby(
+                    'day_of_week'
+                )['gross'].mean().to_dict()
+                print(f"      ✅ Non-Muharram averages calculated")
+            
+            # Calculate MUHARRAM weekday averages
+            weekday_avg_MUHARRAM = {}
+            if not muharram_df.empty:
+                daily_totals_muharram = muharram_df.groupby(
+                    ['business_date', 'day_of_week']
+                )['gross'].sum().reset_index()
+                weekday_avg_MUHARRAM = daily_totals_muharram.groupby(
+                    'day_of_week'
+                )['gross'].mean().to_dict()
+                print(f"      ✅ Muharram averages calculated")
+            
+            # ===== STEP 4: Build BY 2026 estimation for affected months =====
+            
+            for month in affected_months_BY:
+                # Get number of days in month
+                import calendar
+                days_in_month = calendar.monthrange(compare_year + 1, month)[1]
+                
+                month_actual = 0
+                month_estimated = 0
+                
+                for day in range(1, days_in_month + 1):
+                    date_by = pd.Timestamp(year=compare_year + 1, month=month, day=day)
+                    day_of_week = date_by.day_name()
+                    
+                    # Get actual CY value for same calendar date
+                    date_cy = pd.Timestamp(year=compare_year, month=month, day=day)
+                    cy_data = branch_df[branch_df['business_date'] == date_cy]
+                    
+                    if not cy_data.empty:
+                        actual_gross = float(cy_data['gross'].sum())
+                    else:
+                        actual_gross = 0.0
+                    
+                    month_actual += actual_gross
+                    
+                    # Decide which average to use for estimation
+                    is_muharram_2026 = (muharram_start_BY <= date_by <= muharram_end_BY)
+                    
+                    if is_muharram_2026:
+                        # Use MUHARRAM weekday average
+                        estimated_gross = weekday_avg_MUHARRAM.get(day_of_week, actual_gross)
+                    else:
+                        # Use NON-MUHARRAM weekday average
+                        estimated_gross = weekday_avg_NON_MUHARRAM.get(day_of_week, actual_gross)
+                    
+                    month_estimated += estimated_gross
+                
+                # Calculate percentage impact
+                if month_actual > 0:
+                    muharram_pct = round(((month_estimated - month_actual) / month_actual) * 100, 2)
                 else:
-                    day_sales_non_muharram = branch_sales[
-                        (branch_sales["month_CY"] == mon) & (
-                            branch_sales["year_CY"] == compare_year)
-                    ].groupby("day_of_week")["gross"].mean().reset_index()
-                    for _, v in day_sales_non_muharram.iterrows():
-                        branch_sales.loc[
-                            (branch_sales["muharram_BY"] == 3) &
-                            (branch_sales["month_BY"] == mon) &
-                            (branch_sales["day_of_week_BY"]
-                             == v["day_of_week"]),
-                            "gross_BY"
-                        ] = v["gross"]
-
-            sum_sales = branch_sales[
-                (branch_sales["muharram_BY"].isin([1, 2, 3])) &
-                (branch_sales["year_BY"] == compare_year + 1)
-            ].groupby("month_BY").agg(
-                actual=('gross', 'sum'),
-                est=('gross_BY', 'sum')
-            ).reset_index()
-            sum_sales["Muharram %"] = round(
-                ((sum_sales["est"] - sum_sales["actual"]) / sum_sales["actual"]) * 100, 2)
-            sum_sales["branch_id"] = branch
-            final_df = pd.concat([final_df, sum_sales], ignore_index=True)
-
-        final_df = final_df[["branch_id", "month_BY",
-                             "actual", "est", "Muharram %"]]
-        final_df = final_df.rename(columns={"month_BY": "month"})
+                    muharram_pct = 0.0
+                
+                # Add to results
+                final_df = pd.concat([final_df, pd.DataFrame([{
+                    'branch_id': branch_id,
+                    'month': month,
+                    'actual': month_actual,
+                    'est': month_estimated,
+                    'Muharram %': muharram_pct
+                }])], ignore_index=True)
+                
+                print(f"      Month {month}: Actual={month_actual:.2f}, Est={month_estimated:.2f}, Impact={muharram_pct}%")
+        
+        print(f"\n✅ Muharram calculation completed")
         return final_df
+        
     except Exception:
         raise
 

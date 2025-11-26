@@ -4,6 +4,7 @@ from fastapi.responses import JSONResponse, StreamingResponse
 from src.models.branch_list import BranchListOut
 import pandas as pd
 import calendar
+from datetime import timedelta
 from io import BytesIO
 from src.models.budget import defaultBudgetModel
 from src.models.projection import ProjectionEstimateIn, ProjectionInputModel
@@ -651,6 +652,109 @@ def get_islamic_calendar_effects(
                 }
                 
                 brands_dict[brand_id]['branches'][branch_id]['months'].append(month_data)
+            
+            # 🌙 ADD MUHARRAM MONTHS (July=7, August=8) with daily sales data
+            print("\n🌙 Adding Muharram months (July/August) to API response...")
+            # Process each branch that was already added above
+            for brand_id in brands_dict.keys():
+                for branch_id in brands_dict[brand_id]['branches'].keys():
+                    # 🌙 MUHARRAM FULL ISLAMIC MONTH ANALYSIS
+                    # CY 2025: Muharram Islamic month spans July 27 - August 5 (10 days)
+                    # BY 2026: Muharram Islamic month spans July 16 - July 25 (10 days)
+                    # Strategy: Calculate TWO weekday averages from CY 2025:
+                    #   1. Muharram days weekday average (from the 10 Islamic days)
+                    #   2. Non-Muharram days weekday average (from remaining days in July+August)
+                    
+                    # Define Muharram dates (from API request parameters)
+                    muharram_start_CY = muharram_CY  # 2025-07-27
+                    muharram_end_CY = muharram_CY + timedelta(days=muharram_daycount_CY - 1)  # 2025-08-05
+                    muharram_start_BY = muharram_BY  # 2026-07-16
+                    muharram_end_BY = muharram_BY + timedelta(days=muharram_daycount_BY - 1)  # 2026-07-25
+                    
+                    print(f"🌙 Processing Muharram Islamic month for branch {branch_id}...")
+                    print(f"   CY 2025 Muharram: {muharram_start_CY.strftime('%b %d')} - {muharram_end_CY.strftime('%b %d')}")
+                    print(f"   BY 2026 Muharram: {muharram_start_BY.strftime('%b %d')} - {muharram_end_BY.strftime('%b %d')}")
+                    
+                    # Get ALL data for June + July 2025 (CY) - the Muharram-affected months
+                    branch_june_july_df = df[
+                        (df['branch_id'] == branch_id) & 
+                        (df['business_date'].dt.year == compare_year) &
+                        (df['business_date'].dt.month.isin([6, 7]))
+                    ].copy()
+                    
+                    if not branch_june_july_df.empty:
+                        # Calculate ONE weekday average from FULL MONTHS (June + July)
+                        # This is the complete Muharram-affected period analysis
+                        print(f"   📊 CY 2025: Processing FULL months - {len(branch_june_july_df)} total days")
+                        
+                        # Calculate weekday averages from ALL days in June + July combined
+                        branch_june_july_df['day_of_week'] = branch_june_july_df['business_date'].dt.day_name()
+                        daily_totals = branch_june_july_df.groupby(['business_date', 'day_of_week'])['gross'].sum().reset_index()
+                        weekday_avg_full_month = daily_totals.groupby('day_of_week')['gross'].mean().to_dict()
+                        print(f"   🌙 Full month weekday averages: {weekday_avg_full_month}")
+                    
+                    # Now process each month (June and July) for display
+                    for muharram_month in [6, 7]:
+                        print(f"\n📅 Building daily breakdown for month {muharram_month}...")
+                        daily_sales_data = []
+                        
+                        branch_month_df = df[
+                            (df['branch_id'] == branch_id) & 
+                            (df['business_date'].dt.year == compare_year) &
+                            (df['business_date'].dt.month == muharram_month)
+                        ]
+                        
+                        if not branch_month_df.empty:
+                            daily_totals_cy = branch_month_df.groupby(branch_month_df['business_date'].dt.day)['gross'].sum()
+                            
+                            for day_num, daily_gross_cy in daily_totals_cy.items():
+                                date_obj_cy = pd.Timestamp(year=compare_year, month=muharram_month, day=day_num)
+                                date_obj_by = pd.Timestamp(year=compare_year + 1, month=muharram_month, day=day_num)
+                                day_of_week_by = date_obj_by.day_name()
+                                
+                                # Apply FULL MONTH weekday average to ALL BY 2026 days
+                                # Use the same weekday average for entire July 2026 (no distinction between Muharram/Non-Muharram)
+                                estimated_value = weekday_avg_full_month.get(day_of_week_by, float(daily_gross_cy))
+                                
+                                daily_sales_data.append({
+                                    'day': int(day_num),
+                                    'actual': float(daily_gross_cy),
+                                    'estimated': float(estimated_value)
+                                })
+                        
+                        # Get muharram_pct from service layer
+                        muharram_pct = None
+                        muharram_row = muh[
+                            (muh['branch_id'] == branch_id) & 
+                            (muh['month'] == muharram_month)
+                        ]
+                        if not muharram_row.empty:
+                            muharram_pct = safe_float(muharram_row.iloc[0]['Muharram %'])
+                        
+                        # Calculate totals
+                        sales_CY = sum(day['actual'] for day in daily_sales_data) if daily_sales_data else 0
+                        est_sales_BY = sum(day['estimated'] for day in daily_sales_data) if daily_sales_data else 0
+                        
+                        # Recalculate percentage based on full month
+                        if sales_CY > 0:
+                            muharram_pct = ((est_sales_BY - sales_CY) / sales_CY) * 100
+                        
+                        est_sales_no_muharram = sales_CY / (1 + muharram_pct / 100.0) if muharram_pct != 0 else sales_CY
+                        
+                        month_data = {
+                            'month': muharram_month,
+                            'sales_CY': sales_CY,
+                            'est_sales_no_ramadan': sales_CY,
+                            'est_sales_no_muharram': est_sales_no_muharram,
+                            'est_sales_no_eid2': sales_CY,
+                            'ramadan_eid_pct': 0.0,
+                            'muharram_pct': muharram_pct if muharram_pct is not None else 0.0,
+                            'eid2_pct': 0.0,
+                            'daily_sales': daily_sales_data
+                        }
+                        
+                        brands_dict[brand_id]['branches'][branch_id]['months'].append(month_data)
+                        print(f"✅ Month {muharram_month}: {len(daily_sales_data)} days, CY: {sales_CY:.2f}, BY est: {est_sales_BY:.2f}, Impact: {muharram_pct:.2f}%")
             
             # Convert to list structure
             result = []
