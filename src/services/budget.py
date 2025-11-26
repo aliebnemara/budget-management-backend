@@ -948,7 +948,23 @@ def Muharram_calculations(compare_year, muharram_CY, muharram_BY, muharram_dayco
                 weekday_avg_NON_MUHARRAM = daily_totals_non_muharram.groupby(
                     'day_of_week'
                 )['gross'].mean().to_dict()
-                print(f"      ✅ Non-Muharram averages calculated")
+                print(f"      ✅ Non-Muharram averages calculated:")
+                
+                # Show detailed breakdown for Monday
+                if 'Monday' in weekday_avg_NON_MUHARRAM:
+                    monday_days = daily_totals_non_muharram[daily_totals_non_muharram['day_of_week'] == 'Monday']
+                    print(f"         📅 MONDAY NON-MUHARRAM DAYS:")
+                    print(f"            Days used: {len(monday_days)}")
+                    for _, row in monday_days.iterrows():
+                        print(f"            • {row['business_date'].date()}: {row['gross']:,.2f} BHD")
+                    print(f"            ➡️  Average: {weekday_avg_NON_MUHARRAM['Monday']:,.2f} BHD")
+                
+                # Show all weekday averages
+                print(f"         All weekday averages:")
+                for day in ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday']:
+                    if day in weekday_avg_NON_MUHARRAM:
+                        day_count = len(daily_totals_non_muharram[daily_totals_non_muharram['day_of_week'] == day])
+                        print(f"            {day:9s}: {weekday_avg_NON_MUHARRAM[day]:8,.2f} BHD ({day_count} days)")
             
             # Calculate MUHARRAM weekday averages
             weekday_avg_MUHARRAM = {}
@@ -959,7 +975,23 @@ def Muharram_calculations(compare_year, muharram_CY, muharram_BY, muharram_dayco
                 weekday_avg_MUHARRAM = daily_totals_muharram.groupby(
                     'day_of_week'
                 )['gross'].mean().to_dict()
-                print(f"      ✅ Muharram averages calculated")
+                print(f"      ✅ Muharram averages calculated:")
+                
+                # Show detailed breakdown for Monday
+                if 'Monday' in weekday_avg_MUHARRAM:
+                    monday_days = daily_totals_muharram[daily_totals_muharram['day_of_week'] == 'Monday']
+                    print(f"         📅 MONDAY MUHARRAM DAYS:")
+                    print(f"            Days used: {len(monday_days)}")
+                    for _, row in monday_days.iterrows():
+                        print(f"            • {row['business_date'].date()}: {row['gross']:,.2f} BHD")
+                    print(f"            ➡️  Average: {weekday_avg_MUHARRAM['Monday']:,.2f} BHD")
+                
+                # Show all weekday averages
+                print(f"         All weekday averages:")
+                for day in ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday']:
+                    if day in weekday_avg_MUHARRAM:
+                        day_count = len(daily_totals_muharram[daily_totals_muharram['day_of_week'] == day])
+                        print(f"            {day:9s}: {weekday_avg_MUHARRAM[day]:8,.2f} BHD ({day_count} days)")
             
             # ===== STEP 4: Build BY 2026 estimation for affected months =====
             
