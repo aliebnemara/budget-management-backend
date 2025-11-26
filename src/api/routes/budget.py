@@ -391,12 +391,16 @@ def get_islamic_calendar_effects(
             df
         )
         
-        muh = Muharram_calculations(
+        muh_result = Muharram_calculations(
             compare_year,
             muharram_CY, muharram_BY,
             muharram_daycount_CY, muharram_daycount_BY,
             df
         )
+        
+        # Extract monthly summary and metadata
+        muh = muh_result['monthly_summary']
+        muh_metadata = muh_result['metadata']
         
         eid2 = Eid2Calculations(compare_year, eid2_CY, eid2_BY, df)
         
@@ -583,12 +587,36 @@ def get_islamic_calendar_effects(
                     # Group by day to get actual daily totals
                     daily_totals = branch_month_df.groupby(branch_month_df['business_date'].dt.day)['gross'].sum()
                     
+                    # 🟠 CHECK: Is this a Muharram-affected month?
+                    is_muharram_month = month in muh_metadata['affected_months_BY']
+                    
                     for day_num, daily_gross in daily_totals.items():
-                        # 🧠 SMART ESTIMATION: Use dynamic reference period selection
                         estimated_value = float(daily_gross)  # Default fallback
                         
-                        # Get reference info for this specific day
-                        if month in estimation_plan and day_num in estimation_plan[month]:
+                        # 🟠 PRIORITY: Use Muharram TWO separate weekday averages for affected months
+                        if is_muharram_month and branch_id in muh_metadata['branch_weekday_averages']:
+                            # Get Muharram weekday averages for this branch
+                            branch_avg = muh_metadata['branch_weekday_averages'][branch_id]
+                            
+                            # Determine day of week for BY date
+                            date_BY = pd.Timestamp(year=budget_year, month=month, day=day_num)
+                            day_of_week_BY = date_BY.day_name()
+                            
+                            # Determine if this day falls within Muharram period in BY 2026
+                            muharram_start_BY = muh_metadata['muharram_start_BY']
+                            muharram_end_BY = muh_metadata['muharram_end_BY']
+                            is_muharram_day = (muharram_start_BY <= date_BY <= muharram_end_BY)
+                            
+                            # Use appropriate weekday average based on whether day is in Muharram period
+                            if is_muharram_day:
+                                # Use MUHARRAM weekday average
+                                estimated_value = float(branch_avg['MUHARRAM'].get(day_of_week_BY, daily_gross))
+                            else:
+                                # Use NON-MUHARRAM weekday average
+                                estimated_value = float(branch_avg['NON_MUHARRAM'].get(day_of_week_BY, daily_gross))
+                        
+                        # 🧠 FALLBACK: Use Ramadan Smart System for non-Muharram months
+                        elif month in estimation_plan and day_num in estimation_plan[month]:
                             ref = estimation_plan[month][day_num]
                             
                             # Determine day of week for BY date (for weekday averaging)

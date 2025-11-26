@@ -905,6 +905,7 @@ def Muharram_calculations(compare_year, muharram_CY, muharram_BY, muharram_dayco
         df['day_of_week'] = df['business_date'].dt.day_name()
         
         final_df = pd.DataFrame()
+        branch_weekday_averages = {}  # Store weekday averages per branch
         
         for branch_id in df["branch_id"].unique():
             print(f"\n   📊 Processing Branch {branch_id}")
@@ -1046,9 +1047,26 @@ def Muharram_calculations(compare_year, muharram_CY, muharram_BY, muharram_dayco
                 }])], ignore_index=True)
                 
                 print(f"      Month {month}: Actual={month_actual:.2f}, Est={month_estimated:.2f}, Impact={muharram_pct}%")
+            
+            # Store weekday averages for this branch (for daily estimation in API)
+            branch_weekday_averages[branch_id] = {
+                'NON_MUHARRAM': weekday_avg_NON_MUHARRAM,
+                'MUHARRAM': weekday_avg_MUHARRAM
+            }
         
         print(f"\n✅ Muharram calculation completed")
-        return final_df
+        
+        # Return both the monthly summary AND the calculation metadata for daily estimation
+        return {
+            'monthly_summary': final_df,
+            'metadata': {
+                'muharram_start_BY': muharram_start_BY,
+                'muharram_end_BY': muharram_end_BY,
+                'affected_months_BY': affected_months_BY,
+                # Store weekday averages per branch for daily estimation
+                'branch_weekday_averages': branch_weekday_averages
+            }
+        }
         
     except Exception:
         raise
