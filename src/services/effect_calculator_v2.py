@@ -403,13 +403,20 @@ class EffectCalculatorV2:
                 muharram_result
             )
             
+            # Build Eid2 breakdown separately using V1 metadata
+            eid2_breakdown = self._build_eid2_breakdown_from_v1(
+                branch_id, compare_year, month, branch_df,
+                eid2_CY, eid2_BY,
+                eid2_result
+            )
+            
             monthly_islamic_effects[month] = {
                 'ramadan_eid_pct': round(float(row['Ramadan Eid %']), 4) if pd.notna(row['Ramadan Eid %']) else None,
                 'muharram_pct': round(float(row['Muharram %']), 4) if pd.notna(row['Muharram %']) else None,
                 'eid2_pct': round(float(row['Eid2 %']), 4) if pd.notna(row['Eid2 %']) else None,
                 'ramadan_breakdown': daily_breakdown.get('ramadan'),
                 'muharram_breakdown': muharram_breakdown,
-                'eid2_breakdown': daily_breakdown.get('eid2')
+                'eid2_breakdown': eid2_breakdown
             }
         
         return monthly_islamic_effects
@@ -740,6 +747,122 @@ class EffectCalculatorV2:
             'year_by': budget_year,
             'muharram_start_cy': muharram_CY.strftime('%Y-%m-%d'),
             'muharram_start_by': muharram_start_BY.strftime('%Y-%m-%d') if muharram_start_BY else '',
+            'daily_data': daily_data
+        }
+    
+    def _build_eid2_breakdown_from_v1(
+        self,
+        branch_id: int,
+        compare_year: int,
+        month: int,
+        branch_df: pd.DataFrame,
+        eid2_CY: pd.Timestamp,
+        eid2_BY: pd.Timestamp,
+        eid2_result: dict
+    ) -> dict:
+        """
+        Build Eid Al-Adha daily breakdown using V1 Eid2Calculations_v2 metadata.
+        Eid2 is always 3 days (similar logic to Muharram).
+        """
+        from datetime import timedelta
+        import calendar as cal
+        
+        # Check if this month has Eid2
+        has_eid2 = self._month_has_eid2(month, compare_year, eid2_CY) or \
+                   self._month_has_eid2(month, compare_year + 1, eid2_BY)
+        
+        if not has_eid2:
+            return None
+        
+        # Calculate Eid2 day values and weekday averages directly from branch_df
+        eid2_start_CY = eid2_CY
+        eid2_end_CY = eid2_CY + timedelta(days=2)  # 3 days total
+        eid2_start_BY = eid2_BY
+        eid2_end_BY = eid2_BY + timedelta(days=2)
+        
+        # Get Eid2 day sales from CY
+        eid2_day_values = {}
+        for day_offset in range(3):
+            eid2_date = eid2_start_CY + timedelta(days=day_offset)
+            if eid2_date.month == month and eid2_date.year == compare_year:
+                eid_data = branch_df[branch_df['business_date'] == eid2_date]
+                if not eid_data.empty:
+                    eid2_day_values[day_offset + 1] = float(eid_data['gross'].sum())
+        
+        # Calculate weekday averages for non-Eid2 days in this month
+        month_data = branch_df[
+            (branch_df['business_date'].dt.year == compare_year) &
+            (branch_df['business_date'].dt.month == month) &
+            (~branch_df['business_date'].isin([eid2_start_CY, eid2_start_CY + timedelta(days=1), eid2_end_CY]))
+        ]
+        
+        branch_weekday_avgs = {}
+        if not month_data.empty:
+            branch_weekday_avgs = month_data.groupby(month_data['business_date'].dt.day_name())['gross'].mean().to_dict()
+        
+        # Build daily data
+        budget_year = compare_year + 1
+        num_days = cal.monthrange(budget_year, month)[1]
+        daily_data = []
+        
+        for day in range(1, num_days + 1):
+            date_cy = pd.Timestamp(year=compare_year, month=month, day=day)
+            date_by = pd.Timestamp(year=budget_year, month=month, day=day)
+            day_name = date_by.strftime('%A')
+            
+            # Get CY sales
+            cy_data = branch_df[branch_df['business_date'] == date_cy]
+            sales_cy = float(cy_data['gross'].sum()) if not cy_data.empty else 0.0
+            
+            # Get BY estimation using V1 logic
+            is_eid2_by = eid2_start_BY <= date_by <= eid2_end_BY if eid2_start_BY and eid2_end_BY else False
+            
+            if is_eid2_by:
+                # Use Eid2 day values if available (day-by-day copy)
+                eid2_day_idx = (date_by - eid2_start_BY).days
+                if 0 <= eid2_day_idx <= 2:
+                    eid2_day_num = eid2_day_idx + 1
+                    sales_by = eid2_day_values.get(eid2_day_num, sales_cy)
+                else:
+                    sales_by = sales_cy
+            else:
+                # Use weekday average for non-Eid2 days
+                sales_by = branch_weekday_avgs.get(day_name, sales_cy)
+            
+            # Islamic labels
+            is_eid2_cy = False
+            is_eid2_by_label = False
+            label_cy = "Normal Day"
+            label_by = "Normal Day"
+            
+            if eid2_start_CY <= date_cy <= eid2_end_CY:
+                is_eid2_cy = True
+                day_num = (date_cy - eid2_start_CY).days + 1
+                label_cy = f"Eid Al-Adha Day {day_num}"
+            
+            if is_eid2_by:
+                is_eid2_by_label = True
+                day_num = (date_by - eid2_start_BY).days + 1
+                label_by = f"Eid Al-Adha Day {day_num}"
+            
+            daily_data.append({
+                'day': day,
+                'date_by': date_by.strftime('%Y-%m-%d'),
+                'day_of_week': day_name,
+                'sales_cy': float(sales_cy),
+                'est_sales_by': float(sales_by),
+                'islamic_label_cy': label_cy,
+                'islamic_label_by': label_by,
+                'is_eid2_cy': is_eid2_cy,
+                'is_eid2_by': is_eid2_by_label
+            })
+        
+        return {
+            'month': month,
+            'year_cy': compare_year,
+            'year_by': budget_year,
+            'eid2_start_cy': eid2_CY.strftime('%Y-%m-%d'),
+            'eid2_start_by': eid2_start_BY.strftime('%Y-%m-%d') if eid2_start_BY else '',
             'daily_data': daily_data
         }
     
