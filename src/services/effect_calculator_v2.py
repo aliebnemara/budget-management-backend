@@ -780,14 +780,14 @@ class EffectCalculatorV2:
         eid2_start_BY = eid2_BY
         eid2_end_BY = eid2_BY + timedelta(days=2)
         
-        # Get Eid2 day sales from CY
+        # Get Eid2 day sales from CY (regardless of which month we're calculating for)
         eid2_day_values = {}
         for day_offset in range(3):
             eid2_date = eid2_start_CY + timedelta(days=day_offset)
-            if eid2_date.month == month and eid2_date.year == compare_year:
-                eid_data = branch_df[branch_df['business_date'] == eid2_date]
-                if not eid_data.empty:
-                    eid2_day_values[day_offset + 1] = float(eid_data['gross'].sum())
+            # Always get CY Eid values - don't restrict by month being calculated
+            eid_data = branch_df[branch_df['business_date'] == eid2_date]
+            if not eid_data.empty:
+                eid2_day_values[day_offset + 1] = float(eid_data['gross'].sum())
         
         # Calculate weekday averages for non-Eid2 days in this month
         month_data = branch_df[
@@ -798,7 +798,10 @@ class EffectCalculatorV2:
         
         branch_weekday_avgs = {}
         if not month_data.empty:
-            branch_weekday_avgs = month_data.groupby(month_data['business_date'].dt.day_name())['gross'].mean().to_dict()
+            # First sum by date to get daily totals, then calculate weekday averages
+            daily_totals = month_data.groupby('business_date')['gross'].sum().reset_index()
+            daily_totals['day_of_week'] = daily_totals['business_date'].dt.day_name()
+            branch_weekday_avgs = daily_totals.groupby('day_of_week')['gross'].mean().to_dict()
         
         # Build daily data
         budget_year = compare_year + 1

@@ -401,8 +401,9 @@ def get_islamic_calendar_effects_v2(
                                 daily_sales.append({
                                     'day': day_item.get('day'),
                                     'date': day_item.get('date_by'),  # 2026 date
-                                    'actual': day_item.get('sales_cy'),  # 2025 actual sales
-                                    'estimated': day_item.get('est_sales_by')  # 2026 estimated sales
+                                    'actual': day_item.get('est_sales_by'),  # 2026 estimated sales (what frontend expects)
+                                    'sales_cy': day_item.get('sales_cy'),  # 2025 historical sales (for reference)
+                                    'estimated': day_item.get('est_sales_by')  # 2026 estimated sales (kept for compatibility)
                                 })
                 
                 months_array.append({
