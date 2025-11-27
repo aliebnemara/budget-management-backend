@@ -250,3 +250,45 @@ class ProjectionEstimate(Base):
     __table_args__ = (
         UniqueConstraint("branch_id", "month", name="uq_projection_estimates_branch_month"),
     )
+
+
+class BudgetEffectCalculationsV2(Base):
+    """
+    V2 table to store pre-calculated weekend and Islamic calendar effects.
+    Calculate once, view many times for 10-20x faster page loads.
+    """
+    __tablename__ = "budget_effect_calculations_v2"
+    
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    restaurant_id = Column(Integer, ForeignKey("branch.id"), nullable=False, index=True)
+    budget_year = Column(Integer, nullable=False, index=True)
+    month = Column(Integer, nullable=False)  # 1..12
+    
+    # Weekend/Weekday Effect - Final percentages
+    weekday_effect_pct = Column(Numeric(10, 4))  # e.g., +5.23% or -3.45%
+    
+    # Islamic Calendar Effects - Final percentages
+    ramadan_eid_pct = Column(Numeric(10, 4))     # Ramadan/Eid combined effect
+    muharram_pct = Column(Numeric(10, 4))        # Muharram effect
+    eid2_pct = Column(Numeric(10, 4))            # Eid Al-Adha effect
+    
+    # Detailed breakdowns stored as JSON
+    weekday_breakdown = Column(JSONB)     # Daily weekday pattern + monthly distribution
+    ramadan_breakdown = Column(JSONB)     # 6-month daily Ramadan data
+    muharram_breakdown = Column(JSONB)    # Daily Muharram data
+    eid2_breakdown = Column(JSONB)        # Daily Eid Al-Adha data
+    
+    # Metadata
+    calculated_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+    calculated_by = Column(Integer, ForeignKey("users.id"), nullable=True)
+    
+    # Relationships
+    restaurant = relationship("Branch")
+    calculated_by_user = relationship("User", foreign_keys=[calculated_by])
+    
+    # Constraints
+    __table_args__ = (
+        UniqueConstraint("restaurant_id", "budget_year", "month", 
+                        name="uq_budget_effect_calc_v2_rest_year_month"),
+        Index("idx_budget_effect_v2_rest_year", "restaurant_id", "budget_year"),
+    )
